@@ -16,6 +16,8 @@ mod listener;
 mod paths;
 #[allow(dead_code)]
 mod installer;
+#[allow(dead_code)]
+mod delivery;
 
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
