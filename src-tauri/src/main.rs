@@ -10,6 +10,8 @@ mod overlay;
 mod listener;
 #[allow(dead_code)]
 mod paths;
+#[allow(dead_code)]
+mod installer;
 
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
