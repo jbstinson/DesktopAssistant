@@ -109,7 +109,7 @@ The panel can answer some Claude Code permission requests for you. Rules, voice 
 
 **What goes straight back to Claude Code.** A request is not held when the robot is hidden, Do not disturb is on, or **Approve in window** is off. It goes back at once and Claude Code asks you its usual way. Hiding the robot, turning on Do not disturb or turning the switch off also hands back everything already held.
 
-**The 2 minute hold.** A request is held for 120 seconds. If you have not answered, it goes back to Claude Code and you are asked there. To change the time, edit `%APPDATA%\DesktopAssistantpprovals.json`:
+**The 2 minute hold.** A request is held for 120 seconds. If you have not answered, it goes back to Claude Code and you are asked there. To change the time, edit `%APPDATA%\DesktopAssistant\approvals.json`:
 
 ```json
 {"enabled": true, "hold_seconds": 120}
