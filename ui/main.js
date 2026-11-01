@@ -31,6 +31,8 @@ let busy = false;
 let chain = Promise.resolve();
 // The request the panel last saw, and whether the panel opened itself for it.
 let lastRequestId = null;
+// The panel state last asked for, which `open` trails while a change is in flight.
+let wantOpen = false;
 let autoOpened = false;
 
 const approval = mountApproval(document.getElementById("approval"), panelEl, {
@@ -68,6 +70,7 @@ async function applyPanel(want) {
 }
 
 function setPanelOpen(want) {
+  wantOpen = want;
   chain = chain.then(() => applyPanel(want));
   return chain;
 }
@@ -76,14 +79,14 @@ function togglePanel() {
   if (busy) return;
   // Once the user chooses, the panel no longer closes itself.
   autoOpened = false;
-  setPanelOpen(!open);
+  setPanelOpen(!wantOpen);
 }
 
 // A new request opens the panel without taking focus. A panel opened that way closes when
 // the requests run out; one the user already had open stays and returns to the session list.
 function followRequests(snap) {
   const id = snap.request ? snap.request.id : null;
-  if (id !== null && id !== lastRequestId && !open) {
+  if (id !== null && id !== lastRequestId && !wantOpen) {
     autoOpened = true;
     setPanelOpen(true);
   } else if (id === null && lastRequestId !== null) {

@@ -13,6 +13,18 @@ export const LOCK_MS = 1000;
 
 const SOURCE_FALLBACK = "(unnamed)";
 
+// Text that can display differently from what it is: bidi controls, zero-width and other
+// invisible format characters, control characters, and blank Hangul fillers. Tabs and line
+// breaks are ordinary layout and stay.
+const INVISIBLE = /[\p{Cf}\p{Cc}\u2028\u2029\u115F\u1160\u3164\uFFA0]/gu;
+const KEEP = new Set(["\n", "\r", "\t"]);
+
+/** Shows invisible characters as [U+202E] so the panel text is what will run. */
+export function revealInvisible(text) {
+  return String(text).replace(INVISIBLE, (ch) =>
+    KEEP.has(ch) ? ch : `[U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}]`);
+}
+
 function pretty(input) {
   if (input === undefined) return "(no input)";
   try {
@@ -28,54 +40,63 @@ const isFilled = (v) => typeof v === "string" && v.length > 0;
 /** The tool name and every input as JSON: used when a request does not have the expected shape. */
 function fallbackBlocks(req) {
   return [
-    { type: "text", text: isFilled(req.tool) ? req.tool : "(unknown tool)" },
+    { type: "tool", text: isFilled(req.tool) ? req.tool : "(unknown tool)" },
     { type: "json", text: pretty(req.input) },
   ];
 }
 
+/** Every input key not already shown, so no input is ever hidden (replace_all, edit_mode...). */
+function otherInputs(input, shown) {
+  const rest = Object.fromEntries(Object.entries(input).filter(([k]) => !shown.includes(k)));
+  return Object.keys(rest).length ? [{ type: "other", text: pretty(rest) }] : [];
+}
+
 function blocksFor(req) {
-  const input = req.input !== null && typeof req.input === "object" ? req.input : {};
+  const input = req.input !== null && typeof req.input === "object" && !Array.isArray(req.input) ? req.input : null;
+  if (!input) return null;
+  const tool = { type: "tool", text: req.tool };
   switch (req.kind) {
     case "command":
-      return isFilled(input.command) ? [{ type: "code", text: input.command }] : null;
+      if (!isFilled(input.command)) return null;
+      return [tool, { type: "code", text: input.command }, ...otherInputs(input, ["command"])];
     case "edit":
       if (req.tool === "Write" && isFilled(input.file_path) && isText(input.content)) {
-        return [{ type: "path", text: input.file_path }, { type: "added", text: input.content }];
+        return [tool, { type: "path", text: input.file_path }, { type: "added", text: input.content },
+          ...otherInputs(input, ["file_path", "content"])];
       }
       if (req.tool === "NotebookEdit" && isFilled(input.notebook_path) && isText(input.new_source)) {
-        return [{ type: "path", text: input.notebook_path }, { type: "added", text: input.new_source }];
+        // A delete has no new source to show as added; it stays in the other inputs.
+        const deleting = input.edit_mode === "delete";
+        return [tool, { type: "path", text: input.notebook_path },
+          ...(deleting ? [] : [{ type: "added", text: input.new_source }]),
+          ...otherInputs(input, deleting ? ["notebook_path"] : ["notebook_path", "new_source"])];
       }
       if (req.tool === "Edit" && isFilled(input.file_path) && isText(input.old_string) && isText(input.new_string)) {
-        return [
-          { type: "path", text: input.file_path },
-          { type: "removed", text: input.old_string },
-          { type: "added", text: input.new_string },
-        ];
+        return [tool, { type: "path", text: input.file_path }, { type: "removed", text: input.old_string },
+          { type: "added", text: input.new_string }, ...otherInputs(input, ["file_path", "old_string", "new_string"])];
       }
       return null;
-    case "web":
-      if (isFilled(input.url)) return [{ type: "text", text: input.url }];
-      if (isFilled(input.query)) return [{ type: "text", text: input.query }];
-      return null;
-    case "mcp":
-      return fallbackBlocks(req);
     default:
+      // Web, MCP and anything else: the tool name and all inputs.
       return null;
   }
 }
 
 /**
  * What the panel shows for a request: header text, the description, and the content blocks.
- * A request that does not look as expected shows its tool name and raw input instead; the
- * content area is never blank.
+ * The tool name is always shown, and no input is dropped. A request that does not look as
+ * expected shows its tool name and raw input; the content area is never blank. All text has
+ * invisible characters made visible.
  */
 export function requestView(req, count = 1) {
+  const blocks = (blocksFor(req) ?? fallbackBlocks(req)).map((b) => ({ ...b, text: revealInvisible(b.text) }));
   return {
-    project: req.project || SOURCE_FALLBACK,
+    project: revealInvisible(req.project || SOURCE_FALLBACK),
     source: sourceLabel(req.source),
+    tag: revealInvisible(req.session_tag || ""),
     position: `1 of ${Math.max(1, count)}`,
-    description: isFilled(req.description) ? req.description : null,
-    blocks: blocksFor(req) ?? fallbackBlocks(req),
+    description: isFilled(req.description) ? revealInvisible(req.description) : null,
+    blocks,
   };
 }
 
@@ -104,16 +125,17 @@ export function buttonsFor(req) {
 
 /** The rule Allow this session and Always allow would save, or null when there is none. */
 export function ruleLine(req) {
-  return req.rule_text ? `Saves as a rule: ${req.rule_text}` : null;
+  return req.rule_text ? revealInvisible(`Saves as a rule: ${req.rule_text}`) : null;
 }
 
 /**
- * The second step of Always allow. Cancel takes the last slot, which Always allow had, so the
- * second click of a double-click lands on Cancel. Confirm is clear of that slot.
+ * The second step of Always allow. Confirm sits at the far left of its row and Cancel at the
+ * far right, so Confirm never overlaps the rectangle Always allow had (in x), and a second
+ * click of a double-click lands on nothing that approves.
  */
 export function confirmView(req) {
   return {
-    ruleText: req.rule_text,
+    ruleText: revealInvisible(req.rule_text ?? ""),
     warning: req.rule_broad
       ? "This rule is broad. It will also allow other requests that start the same way."
       : null,
@@ -122,12 +144,6 @@ export function confirmView(req) {
       { choice: "cancel", label: LABELS.cancel },
     ],
   };
-}
-
-/** "main" shows the button row, "confirm" shows the Always allow check. */
-export function nextStep(step, action) {
-  if (step === "main" && action === "always_allow") return "confirm";
-  return "main";
 }
 
 // Lock state. `phase` says where the cursor stands:
@@ -141,14 +157,15 @@ export function newLock(nowMs, lockedMs) {
   return { until: nowMs + lockedMs, phase: "unknown" };
 }
 
-/** Records where the cursor was when the request appeared. */
+/** Records where the cursor was when the request appeared. Unreadable (null) counts as over it. */
 export function resolveCursor(lock, inside) {
   if (lock.phase !== "unknown") return lock;
-  return { ...lock, phase: inside ? "inside" : "clear" };
+  return { ...lock, phase: inside === false ? "clear" : "inside" };
 }
 
-/** The cursor entered (true) or left (false) the panel. */
+/** The cursor entered (true) or left (false) the panel. An unreadable cursor (null) changes nothing. */
 export function pointerMoved(lock, inside) {
+  if (inside === null || inside === undefined) return lock;
   if (lock.phase === "inside" && !inside) return { ...lock, phase: "left" };
   if (lock.phase === "left" && inside) return { ...lock, phase: "clear" };
   return lock;
@@ -162,6 +179,14 @@ export function isLocked(lock, nowMs) {
 export function isChoiceLocked(lock, choice, nowMs) {
   if (choice === "release" || choice === "cancel") return false;
   return isLocked(lock, nowMs);
+}
+
+/**
+ * A click counts only if its press began while the button was unlocked, it is for the request
+ * the button was drawn for, and the lock is still off now.
+ */
+export function clickAllowed({ downLocked, lockedNow, pinnedId, currentId }) {
+  return downLocked === false && !lockedNow && pinnedId === currentId;
 }
 
 /** Seconds left now, counting down from what the snapshot said when it arrived. */
@@ -186,6 +211,13 @@ function blockNode(block) {
   switch (block.type) {
     case "path":
       return el("div", "ap-path", text);
+    case "tool":
+      return el("div", "ap-tool", text);
+    case "other": {
+      const wrap = el("div", "ap-other");
+      wrap.append(el("div", "ap-diff-label", "Other inputs"), el("pre", "ap-code", text));
+      return wrap;
+    }
     case "removed":
     case "added": {
       const wrap = el("div", `ap-diff ap-${block.type}`);
@@ -251,11 +283,12 @@ export function mountApproval(root, panelEl, { onAnswer, onRefresh, cursorInWind
     }
   }
 
-  async function press(choice) {
-    if (!cur || cur.busy || isChoiceLocked(cur.lock, choice, now())) return;
-    const step = nextStep(cur.step, choice);
+  async function press(choice, pinnedId, downLocked) {
+    if (!cur || cur.busy) return;
+    const lockedNow = isChoiceLocked(cur.lock, choice, now());
+    if (!clickAllowed({ downLocked, lockedNow, pinnedId, currentId: cur.id })) return;
     if (cur.step === "main" && choice === "always_allow") {
-      cur.step = step;
+      cur.step = "confirm";
       // Confirm gets its own short time lock, so it cannot be hit by the same click run.
       cur.lock = resolveCursor(newLock(now(), LOCK_MS), false);
       drawActions();
@@ -263,6 +296,8 @@ export function mountApproval(root, panelEl, { onAnswer, onRefresh, cursorInWind
     }
     if (choice === "cancel") {
       cur.step = "main";
+      // Back on the main row, the buttons lock again for a moment.
+      cur.lock = resolveCursor(newLock(now(), LOCK_MS), false);
       drawActions();
       return;
     }
@@ -283,7 +318,20 @@ export function mountApproval(root, panelEl, { onAnswer, onRefresh, cursorInWind
     const b = el("button", className, label);
     b.type = "button";
     b.dataset.choice = choice;
-    b.addEventListener("click", () => press(choice));
+    // Pinned to the request it was drawn for.
+    const pinnedId = cur.id;
+    b.dataset.requestId = pinnedId;
+    // Whether the press began while locked. A disabled button gets no pointerdown at all, so a
+    // press that began locked and ends after the unlock never has a recorded unlocked start.
+    let downLocked;
+    b.addEventListener("pointerdown", () => {
+      downLocked = !cur || isChoiceLocked(cur.lock, choice, now());
+    });
+    b.addEventListener("click", () => {
+      const was = downLocked;
+      downLocked = undefined;
+      press(choice, pinnedId, was);
+    });
     return b;
   }
 
@@ -320,6 +368,7 @@ export function mountApproval(root, panelEl, { onAnswer, onRefresh, cursorInWind
     header.append(
       el("span", "ap-project", view.project),
       el("span", "ap-source", view.source),
+      ...(view.tag ? [el("span", "ap-tag", `#${view.tag}`)] : []),
       el("span", "ap-pos", view.position),
       timer,
     );
@@ -348,8 +397,7 @@ export function mountApproval(root, panelEl, { onAnswer, onRefresh, cursorInWind
   async function checkCursor(id) {
     await prepare();
     await new Promise((r) => requestAnimationFrame(() => r()));
-    // When unsure, make the user move away and back.
-    const inside = (await cursorOverPanel()) ?? true;
+    const inside = await cursorOverPanel(); // null counts as over the panel
     if (cur && cur.id === id) {
       cur.lock = resolveCursor(cur.lock, inside);
       refreshLock();
@@ -392,17 +440,18 @@ export function mountApproval(root, panelEl, { onAnswer, onRefresh, cursorInWind
 
   // Enter and leave events can fire for a cursor that never moved (the window resizes under
   // it), so each one is checked against where the cursor really is.
-  async function pointerEvent(eventSaysInside) {
+  async function pointerEvent() {
     if (!cur) return;
     const id = cur.id;
-    const inside = (await cursorOverPanel()) ?? eventSaysInside;
+    // An unreadable cursor changes nothing, so the state stays locked.
+    const inside = await cursorOverPanel();
     if (cur && cur.id === id) {
       cur.lock = pointerMoved(cur.lock, inside);
       refreshLock();
     }
   }
-  panelEl.addEventListener("mouseenter", () => pointerEvent(true));
-  panelEl.addEventListener("mouseleave", () => pointerEvent(false));
+  panelEl.addEventListener("mouseenter", () => pointerEvent());
+  panelEl.addEventListener("mouseleave", () => pointerEvent());
 
   function setOpen(next) {
     const reopened = next && !open;

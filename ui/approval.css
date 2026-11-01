@@ -81,3 +81,9 @@ body[data-request="true"] #panel .sessions { display: none; }
 #approval .ap-link:hover { color: #bae6fd; }
 
 #approval .ap-actions { display: flex; flex-direction: column; gap: 6px; }
+
+/* Confirm at the far left, Cancel at the far right: Confirm is clear of Always allow's old spot. */
+#approval .ap-row-confirm { justify-content: space-between; }
+#approval .ap-tag { color: #94a3b8; font-size: 12px; font-variant-numeric: tabular-nums; }
+#approval .ap-tool { font-weight: 600; color: #e2e8f0; margin-bottom: 4px; overflow-wrap: anywhere; }
+#approval .ap-other { margin-top: 6px; padding-top: 4px; border-top: 1px solid #1e293b; }

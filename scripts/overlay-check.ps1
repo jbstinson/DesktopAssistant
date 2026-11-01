@@ -239,6 +239,16 @@ try {
   # is below the robot, otherwise 195 px above the window's bottom.
   $denyX = $r.L + [int](38 * $s)
   $denyY = if ($r.T -eq $y + [int](30 * $s) -or $r.T -eq $y) { $r.T + [int](430 * $s) } else { $r.T + [int](285 * $s) }
+  # Always allow asks twice. A double-click on it must answer nothing: the check that replaces the
+  # row keeps Confirm at the far left, clear of where Always allow was, and Cancel is harmless.
+  $aaX = $r.L + [int](299 * $s)
+  Click $aaX $denyY
+  [U]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero); [U]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero); Pump 1500
+  "double-click on Always allow answered nothing: " + (-not $script:results.ContainsKey($first))
+  Click ($r.L + [int](316 * $s)) ($denyY + [int](25 * $s))
+  Pump 1300
+  "Cancel went back to the buttons, nothing answered: " + (-not $script:results.ContainsKey($first))
+  "focus kept through Always allow and Cancel: " + ([U]::GetForegroundWindow() -eq $typing) + " (foreground is $(Fg))"
   # The cursor came from outside the panel, so after the lock a click is accepted.
   Click $denyX $denyY
   "accepted click answered the first request: " + ($script:results[$first] -like '200*deny*') + " ($($script:results[$first]))"

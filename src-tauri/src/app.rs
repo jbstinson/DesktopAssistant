@@ -30,6 +30,8 @@ pub struct RequestView {
     pub id: String,
     pub project: String,
     pub source: String,
+    /// Last 4 characters of the session id, to tell sessions in one project apart.
+    pub session_tag: String,
     pub tool: String,
     /// "command", "edit", "web" or "mcp".
     pub kind: &'static str,
@@ -304,6 +306,10 @@ impl Core {
             id: r.id.clone(),
             project: r.project.clone(),
             source: source.unwrap_or_default(),
+            session_tag: {
+                let tail: Vec<char> = r.session_id.chars().rev().take(4).collect();
+                tail.into_iter().rev().collect()
+            },
             tool: r.tool.clone(),
             kind: match r.kind {
                 Kind::Command => "command",
@@ -844,7 +850,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     }
 
     #[test]
-    fn the_input_never_reaches_a_snapshot() {
+    fn debug_output_of_a_snapshot_leaves_out_the_request() {
         let mut core = Core::new(defaults(), None);
         core.open_permission(with_rule("a"), 0 / 1000, 0);
         let text = format!("{:?}", core.snapshot(0));
@@ -881,6 +887,16 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         // Seconds are rounded up, so a request never reads 0 while it still has time.
         assert_eq!(core.snapshot(5_000 + 119_500).request.unwrap().remaining_secs, 1);
         assert_eq!(core.snapshot(5_000 + 1_000).request.unwrap().locked_ms, 0);
+    }
+
+    #[test]
+    fn the_request_carries_the_last_four_characters_of_the_session_id() {
+        let mut core = Core::new(defaults(), None);
+        core.open_permission(ask("session-abcd1234", "Bash"), 0, 0);
+        assert_eq!(core.snapshot(0).request.unwrap().session_tag, "1234");
+        let mut core = Core::new(defaults(), None);
+        core.open_permission(ask("ab", "Bash"), 0, 0);
+        assert_eq!(core.snapshot(0).request.unwrap().session_tag, "ab");
     }
 
     #[test]
