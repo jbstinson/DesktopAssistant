@@ -36,7 +36,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 - **Hide / Show**: hides or shows the robot.
 - **Do not disturb**: mutes sound and speech. The robot still animates.
 - **Connect to Claude Code**: ticked when the hooks are installed. Click again to remove only our entries.
-- **Open rules file**: opens `rules.toml` in your default editor.
+- **Open rules file**: opens `rules.toml` in Notepad.
 - **Quit**.
 
 ## Hotkey
@@ -76,7 +76,7 @@ Result (`then`):
 
 | Field | Meaning |
 |---|---|
-| `tier` | `needs_you` (sound and speech, stays until handled), `good_to_know` (marked done) or `silent` (animation only). |
+| `tier` | `needs_you`, `good_to_know` or `silent` (animation only). The tier sets how you are told, with sound and speech; it does not itself keep the robot waving. The robot waves only while a session is really blocked on a permission request or notification. |
 | `sound` | `"alert"` or `"bell"`. |
 | `speak` | Text to say. `{project}` becomes the project name. |
 
@@ -101,6 +101,11 @@ then = { tier = "good_to_know", sound = "bell", speak = "{project} is done" }
 
 ## Known limits
 
+- The robot may keep waving through a long-running tool you already approved, until that session's next event.
+- After the app restarts, a session already sitting at a prompt is invisible until its next event, and a turn already running gets no bell when it ends.
+- With several Windows Terminal windows open, jump can raise the wrong one.
+- Only one copy runs per Windows account and data folder; starting a second does nothing and exits.
+- If you move the app folder, the hook entries point at the old place. The robot shows a warning; choose **Connect to Claude Code** in the tray to repair them.
 - A Stop cannot tell a finished task from a question asked in plain text. Both look like "done".
 - For desktop app sessions, jump brings the Claude app forward, not the specific session.
 - For Windows Terminal, jump raises the window, not the tab.

@@ -11,6 +11,7 @@ mod position;
 mod rules;
 mod rules_watch;
 mod sessions;
+mod single;
 mod tray;
 mod installer;
 
@@ -184,6 +185,11 @@ fn schedule_position_save(handle: tauri::AppHandle) {
 }
 
 fn main() {
+    // A second launch would overwrite endpoint.json and leave the first app deaf, so it exits
+    // here, before any window or listener exists. The guard lives for the whole run.
+    let Some(_instance) = single::acquire(&single::mutex_name(&paths::data_dir())) else {
+        return;
+    };
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![set_panel, dismiss_session, jump_to, get_snapshot])
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
