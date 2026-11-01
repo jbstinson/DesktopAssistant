@@ -109,7 +109,7 @@ The panel can answer some Claude Code permission requests for you. Rules, voice 
 
 **What goes straight back to Claude Code.** A request is not held when the robot is hidden, Do not disturb is on, or **Approve in window** is off. It goes back at once and Claude Code asks you its usual way. Hiding the robot, turning on Do not disturb or turning the switch off also hands back everything already held.
 
-**The 2 minute hold.** A request is held for 120 seconds. If you have not answered, it goes back to Claude Code and you are asked there. To change the time, edit `%APPDATA%\DesktopAssistant\approvals.json`:
+**The hold.** By default a request is held for 120 seconds (2 minutes). If you have not answered, it goes back to Claude Code and you are asked there. To change the time, edit the app's settings file while the app is closed: `%APPDATA%\DesktopAssistant\approvals.json`:
 
 ```json
 {"enabled": true, "hold_seconds": 120}
@@ -129,7 +129,7 @@ The buttons are locked for 1 second after a request appears, so a click meant fo
 
 **Always allow.** It takes two clicks: the first shows the exact rule, and **Confirm** saves it. The rule applies to the current project only and is written to that project's `.claude/settings.local.json`. To remove one, delete its line from that file, or use `/permissions` in Claude Code.
 
-**Update the hooks once.** After updating, click **Connect to Claude Code** in the tray again. This is needed once so the hook entries pick up the new permission settings. Restart sessions that were already open.
+**Update the hooks once.** After updating, click **Connect to Claude Code** in the tray again, once. The PermissionRequest hook's time limit grows from 5 to 130 seconds so it can wait out the hold. Older entries keep the 5 second limit, so Claude Code would cut them off during the hold and fall back to its normal prompt. Connecting once rewrites the entries. Restart sessions that were already open.
 
 **Limits.**
 
