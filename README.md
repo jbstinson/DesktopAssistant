@@ -183,3 +183,38 @@ Not yet checked (needs you):
 - A full-screen app in front.
 - Hearing the sound and speech (checked only through audio output level, not by ear).
 - Mouse input on the portrait monitor (the test mouse was confined to the main monitor; the click was delivered as a window message).
+
+## Verification results (Stage 2)
+
+Run on Windows 11 with Claude Code 2.1.316 (haiku). The app ran against a temporary APPDATA and USERPROFILE, never the real settings. Test sessions ran in a temp project whose own `.claude/settings.json` pointed all nine hooks at the built `da-hook.exe` (PermissionRequest timeout 130); the `claude` processes kept the real USERPROFILE (login worked) and used the sandbox APPDATA so the hook found the sandbox `endpoint.json`. The test command only wrote a marker file. Buttons were pressed with real mouse clicks on the panel. Sessions were `claude -p` except the two fallback checks, which used a real interactive `claude --permission-mode default` in its own console window.
+
+Checked and passing:
+
+- Deny: the command did not run and Claude was told it was denied. Allow once: the command ran, no `settings.local.json` was written, and the same request in a new session asked again.
+- Allow this session: the command ran, a second identical call in the same session did not ask again, no file was written, and a new session asked again.
+- Always allow (first click shows the rule, Confirm saves): the command ran, `.claude/settings.local.json` held only the shown rule, and a new session ran the command with no panel.
+- Hold of 10 seconds (set in `approvals.json`): the panel closed after about 10 s and Claude Code went to its normal handling (in `claude -p` that means the tool is refused), nothing ran.
+- Answer in Claude Code: the panel closed and `claude -p` went on in about 2 s, nothing ran.
+- App closed (window close) while a request was held: Claude Code went on within about 3 s, nothing ran. App killed while held: within about 2.6 s, nothing ran.
+- Robot hidden before a request, and the Approve in window switch off (`approvals.json` with `enabled` false): no panel, nothing held, normal handling at once (the runs took the same time as an ordinary `claude -p`, about 10 s in total). Hiding the robot while a request was held handed it back in about 3 s.
+- Interactive default-mode session, hold ended without an answer: the normal "Do you want to proceed?" prompt appeared in the terminal (screenshot) and nothing ran. Interactive, Allow once: the command ran.
+- Held request resources, whole process tree (7 processes, request polled like the hook): 0.00% CPU, 172 MB private, 367 MB working set, 0.30% GPU average (0.44% peak).
+
+Findings:
+
+- A session killed while waiting (`claude -p` stopped hard) did not clear the panel at once: the request stayed for about 8 seconds, until the 10 s hold ended. Nothing ran and nothing was approved, but the removal is slower than "at once".
+- Clicks that moved the cursor from outside the panel worked as designed; the lock was not re-tested here (`scripts\overlay-check.ps1` covers it).
+
+Not run:
+
+- Do not disturb (the tray menu was not driven; hiding and the switch were checked instead).
+- A tool that is handed back at once (a question or plan tool).
+- Interactive Allow this session, Always allow and Deny (checked in `claude -p`; interactive checked Allow once and the fallback only).
+- A quit through the tray's Quit item (the window was closed instead).
+
+Needs you:
+
+- Connect from the tray against your real `%USERPROFILE%\.claude\settings.json`, including the repair that raises the PermissionRequest time limit from 5 to 130 seconds, and clicking No on the Connect question.
+- The Claude desktop app's Code tab: answering in the panel, and the fallback after the hold ends or Answer in Claude Code.
+- Subagent sessions.
+- The Stage 1 tray and jump checks (jump list, Windows Terminal, desktop app, the Stage 1 items listed above).
