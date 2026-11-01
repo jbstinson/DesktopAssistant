@@ -9,6 +9,9 @@ mod overlay;
 mod paths;
 // Consumed by the approval wiring in Task 4; remove this allow then.
 #[allow(dead_code)]
+mod pending;
+// Consumed by the approval wiring in Task 4; remove this allow then.
+#[allow(dead_code)]
 mod permission;
 mod position;
 mod rules;
