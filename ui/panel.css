@@ -43,14 +43,15 @@ body[data-panel="open"] #panel { display: flex; }
 #panel .session[data-state="error"] { border-left-color: #ef4444; }
 #panel .session[data-state="done"] { border-left-color: #2dd4bf; }
 
-#panel button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+#panel button { font: inherit; color: inherit; background: none; border: 0; cursor: default; }
+#panel .dismiss, #panel .session-main.jumpable { cursor: pointer; }
 #panel .session-main {
   flex: 1;
   min-width: 0;
   padding: 7px 8px;
   text-align: left;
 }
-#panel .session-main:hover, #panel .dismiss:hover { background: #334155; }
+#panel .session-main.jumpable:hover, #panel .dismiss:hover { background: #334155; }
 #panel .project { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #panel .meta { display: block; color: #94a3b8; font-size: 12px; }
 #panel .dismiss { width: 32px; font-size: 18px; color: #94a3b8; border-radius: 0 8px 8px 0; }

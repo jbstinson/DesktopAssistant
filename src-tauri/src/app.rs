@@ -2,6 +2,7 @@
 //! mutex and feeds it events, rule reloads and timer ticks.
 
 use crate::events::HookEvent;
+use crate::jump;
 use crate::rules::{Alert, RuleSet, Tier};
 use crate::sessions::{Activity, Sessions};
 use serde::Serialize;
@@ -15,6 +16,8 @@ pub struct SessionView {
     pub state: String,
     pub since: u64,
     pub terminal_pid: Option<u32>,
+    /// Whether clicking the row can bring a window forward.
+    pub jumpable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -120,12 +123,22 @@ impl Core {
         self.sessions.list().len() != before
     }
 
+    /// Where the session `id` lives, or None if it is gone.
+    pub fn jump_target(&self, id: &str) -> Option<jump::Target> {
+        self.sessions
+            .list()
+            .into_iter()
+            .find(|v| v.id == id)
+            .map(|v| jump::target_for(&v.source, v.terminal_pid))
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         let sessions: Vec<SessionView> = self
             .sessions
             .list()
             .into_iter()
             .map(|v| SessionView {
+                jumpable: jump::target_for(&v.source, v.terminal_pid) != jump::Target::None,
                 id: v.id,
                 project: v.project,
                 source: v.source,
@@ -181,6 +194,24 @@ mod tests {
         assert_eq!(s.warning, None);
         assert!(!s.quiet);
         assert!(!s.hooks_on);
+    }
+
+    #[test]
+    fn jump_target_follows_source_and_pid() {
+        let mut core = Core::new(defaults(), None);
+        let mut cli = ev("PreToolUse", "a", Some("Read"));
+        cli.source = "cli".into();
+        let mut sdk = ev("PreToolUse", "b", Some("Read"));
+        sdk.source = "sdk-cli".into();
+        core.handle(cli, 10);
+        core.handle(sdk, 10);
+        assert_eq!(core.jump_target("a"), Some(jump::Target::Terminal(7)));
+        assert_eq!(core.jump_target("b"), Some(jump::Target::None));
+        assert_eq!(core.jump_target("gone"), None);
+        let s = core.snapshot();
+        let jumpable = |id: &str| s.sessions.iter().find(|v| v.id == id).unwrap().jumpable;
+        assert!(jumpable("a"));
+        assert!(!jumpable("b"));
     }
 
     #[test]

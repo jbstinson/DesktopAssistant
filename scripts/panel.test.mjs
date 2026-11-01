@@ -1,7 +1,7 @@
 // Run: node --test scripts/panel.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { elapsedLabel, sourceLabel, stateLabel, REFRESH_MS } from "../ui/panel.js";
+import { elapsedLabel, jumpNotice, sourceLabel, stateLabel, REFRESH_MS } from "../ui/panel.js";
 
 test("elapsed shows minutes, or <1m under a minute", () => {
   assert.equal(elapsedLabel(100, 100), "<1m");
@@ -28,4 +28,10 @@ test("states have labels and unknown ones pass through", () => {
 
 test("refresh is at most every 30 seconds", () => {
   assert.ok(REFRESH_MS >= 30000);
+});
+
+test("a failed jump becomes a short notice", () => {
+  assert.equal(jumpNotice("window not found"), "Could not jump: window not found");
+  assert.equal(jumpNotice(new Error("boom")), "Could not jump: boom");
+  assert.equal(jumpNotice(undefined), "Could not jump");
 });

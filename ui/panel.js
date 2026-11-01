@@ -30,6 +30,15 @@ export function elapsedLabel(sinceSecs, nowSecs) {
   return minutes < 1 ? "<1m" : `${minutes}m`;
 }
 
+/** Short text for a failed jump; Rust errors arrive as plain strings. */
+export function jumpNotice(err) {
+  const why = typeof err === "string" ? err : err?.message;
+  return why ? `Could not jump: ${why}` : "Could not jump";
+}
+
+/** How long a notice stays in the warning area. */
+const NOTICE_MS = 4000;
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -49,6 +58,8 @@ export function mountPanel(root, { onDismiss, onJump }) {
 
   let snap = null;
   let timer = null;
+  let notice = "";
+  let noticeTimer = null;
   let isOpen = false;
   const nowSecs = () => Math.floor(Date.now() / 1000);
 
@@ -61,7 +72,16 @@ export function mountPanel(root, { onDismiss, onJump }) {
       el("span", "project", s.project || "(unnamed)"),
       el("span", "meta", `${sourceLabel(s.source)} · ${stateLabel(s.state)} · ${elapsedLabel(s.since, now)}`),
     );
-    main.addEventListener("click", () => onJump(s.id));
+    main.classList.toggle("jumpable", Boolean(s.jumpable));
+    if (s.jumpable) {
+      main.addEventListener("click", async () => {
+        try {
+          await onJump(s.id);
+        } catch (err) {
+          showNotice(jumpNotice(err));
+        }
+      });
+    }
     const dismiss = el("button", "dismiss", "×");
     dismiss.type = "button";
     dismiss.title = "Dismiss";
@@ -71,11 +91,22 @@ export function mountPanel(root, { onDismiss, onJump }) {
     return li;
   }
 
+  function showNotice(text) {
+    notice = text;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => {
+      notice = "";
+      render();
+    }, NOTICE_MS);
+    render();
+  }
+
   function render(next) {
     if (next) snap = next;
     if (!snap || !isOpen) return; // closed: keep the data, skip the DOM work
-    warning.hidden = !snap.warning;
-    warning.textContent = snap.warning || "";
+    const text = [snap.warning, notice].filter(Boolean).join("; ");
+    warning.hidden = !text;
+    warning.textContent = text;
     const now = nowSecs();
     if (snap.sessions.length === 0) {
       list.replaceChildren(el("li", "empty", "No active sessions"));

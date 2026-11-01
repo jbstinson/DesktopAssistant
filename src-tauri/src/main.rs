@@ -3,6 +3,7 @@
 mod app;
 mod delivery;
 mod events;
+mod jump;
 mod listener;
 mod overlay;
 mod paths;
@@ -117,9 +118,17 @@ fn dismiss_session(id: String, core: State<'_, SharedCore>, publish: State<'_, P
     publish();
 }
 
-/// Brings the session's window forward. Stub until Task 11 implements the focus logic.
+/// Brings the session's window forward. A session with nothing to bring forward does
+/// nothing; a window that has gone is reported as an error for the panel to show.
 #[tauri::command]
-fn jump_to(_id: String) -> Result<(), String> {
+fn jump_to(id: String, core: State<'_, SharedCore>) -> Result<(), String> {
+    let target = lock(&core).jump_target(&id).ok_or("session not found")?;
+    if target == jump::Target::None {
+        return Ok(());
+    }
+    // The core lock is released above; the Windows calls can take a moment.
+    let outcome = jump::focus(target)?;
+    eprintln!("jump to {target:?}: {outcome:?}");
     Ok(())
 }
 
