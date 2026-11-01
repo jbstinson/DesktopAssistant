@@ -1,4 +1,5 @@
-# Checks the overlay window: no focus steal, robot takes clicks, empty areas pass clicks through.
+# Checks the overlay window: no focus steal, robot takes clicks, empty areas pass clicks through,
+# and the session panel (open by clicking the robot) takes clicks without taking focus.
 # Briefly moves the mouse; restores the cursor and stops the app afterwards.
 # Build first: npx tauri build --no-bundle
 Add-Type -AssemblyName System.Windows.Forms
@@ -13,6 +14,7 @@ public static class U {
   [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, UIntPtr e);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string cls, string title);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
   [DllImport("user32.dll", EntryPoint="GetWindowLongPtrW")] public static extern IntPtr GetExStyle(IntPtr h, int i);
 }
 '@
@@ -21,6 +23,11 @@ public static class U {
 function Pump($ms) {
   $end = (Get-Date).AddMilliseconds($ms)
   while ((Get-Date) -lt $end) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 15 }
+}
+function Fg() {
+  $sb = New-Object System.Text.StringBuilder 100
+  [U]::GetWindowText([U]::GetForegroundWindow(), $sb, 100) | Out-Null
+  "'" + $sb.ToString() + "'"
 }
 function Click($x, $y) {
   [U]::SetCursorPos($x, $y) | Out-Null
@@ -61,16 +68,44 @@ try {
   Click $boxPoint.X $boxPoint.Y
   "precondition, typing window focused: " + ([U]::GetForegroundWindow() -eq $typing)
 
+  function Rect() { $q = New-Object U+RECT; [U]::GetWindowRect($hwnd, [ref]$q) | Out-Null; "$($q.L),$($q.T) $($q.R - $q.L)x$($q.B - $q.T)" }
+  $cx = $x + [int]($w / 2); $cy = $y + [int]($h / 2)
+  $s = $w / 200.0
+
+  # 1. Clicking the robot opens the panel without stealing focus.
   $before = $script:underClicks
-  Click ($x + [int]($w / 2)) ($y + [int]($h / 2))
+  Click $cx $cy
   "robot took the click (under-window count unchanged): " + ($script:underClicks -eq $before)
-  $now = [U]::GetForegroundWindow()
-  "focus kept after robot click: " + ($now -eq $typing)
+  "focus kept after robot click: " + ([U]::GetForegroundWindow() -eq $typing) + " (foreground is $(Fg))"
+  $p = New-Object U+RECT
+  [U]::GetWindowRect($hwnd, [ref]$p) | Out-Null
+  $pw = $p.R - $p.L; $ph = $p.B - $p.T
+  "panel opened: rect=$(Rect)"
+  "panel window is 360x480 css px: " + (($pw -eq [int](360 * $s)) -and ($ph -eq [int](480 * $s)))
+  $style = [U]::GetExStyle($hwnd, -20).ToInt64()
+  "noactivate kept with panel open: " + [bool]($style -band 0x8000000)
   [System.Windows.Forms.SendKeys]::SendWait("x"); Pump 200
   "typing still lands in app: " + ($box.Text -eq "x")
 
+  # 2. Clicking inside the panel (the part away from the robot) is taken by the panel.
+  $robotTop = $y + [int](30 * $s)
+  if ($p.T -eq $robotTop) { $py = $p.T + [int]((140 * $s + $ph) / 2) } else { $py = $p.T + [int](($ph - 140 * $s) / 2) }
+  $before = $script:underClicks
+  Click ($p.L + [int]($pw / 2)) $py
+  "panel took the click (under-window count unchanged): " + ($script:underClicks -eq $before)
+  "focus kept after panel click: " + ([U]::GetForegroundWindow() -eq $typing) + " (foreground is $(Fg))"
+  [System.Windows.Forms.SendKeys]::SendWait("y"); Pump 200
+  "typing still lands in app with panel open: " + ($box.Text -eq "xy")
+
+  # 3. Clicking the robot again closes it and restores the original window.
+  Click $cx $cy
+  "panel closed at the original rect: " + ((Rect) -eq "$x,$y ${w}x$h") + " (rect=$(Rect))"
+  "focus kept after closing: " + ([U]::GetForegroundWindow() -eq $typing)
+
+  # 4. With the panel closed, an empty corner of the small window passes clicks through.
+  $before = $script:underClicks
   Click ($x + 12) ($y + 12)
-  "empty corner passed click through: " + ($script:underClicks -eq $before + 1) + " (before=$before now=$($script:underClicks))"
+  "empty corner passed click through: " + ($script:underClicks -eq $before + 1)
 }
 finally {
   [System.Windows.Forms.Cursor]::Position = $start

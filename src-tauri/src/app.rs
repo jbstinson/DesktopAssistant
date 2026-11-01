@@ -82,7 +82,13 @@ impl Core {
         self.connection_warning = warning;
     }
 
-    /// Drop silent sessions. Returns whether anything changed.
+    /// Remove one session by hand, whatever its state.
+    pub fn dismiss(&mut self, id: &str) {
+        self.sessions.dismiss(id);
+    }
+
+    /// Expire stale sessions: 30 minutes of silence, or 24 hours for ones waiting on the
+    /// user (needs-you, error). Returns whether anything changed.
     pub fn tick(&mut self, now: u64) -> bool {
         let before = self.sessions.list().len();
         self.sessions.expire(now);
@@ -245,6 +251,26 @@ mod tests {
         assert!(core.tick(100 + 1800));
         assert_eq!(core.snapshot().state, "asleep");
         assert!(!core.tick(100 + 1801));
+    }
+
+    #[test]
+    fn tick_keeps_waiting_sessions_past_thirty_minutes() {
+        let mut core = Core::new(defaults(), None);
+        core.handle(ev("PermissionRequest", "a", None), 100);
+        assert!(!core.tick(100 + 1800));
+        assert_eq!(core.snapshot().waiting, 1);
+        assert!(!core.tick(100 + 86399));
+        assert!(core.tick(100 + 86400));
+        assert_eq!(core.snapshot().waiting, 0);
+    }
+
+    #[test]
+    fn dismiss_removes_any_session() {
+        let mut core = Core::new(defaults(), None);
+        core.handle(ev("PermissionRequest", "a", None), 1);
+        core.dismiss("a");
+        assert_eq!(core.snapshot().state, "asleep");
+        core.dismiss("missing");
     }
 
     #[test]

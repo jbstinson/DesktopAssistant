@@ -6,6 +6,8 @@ use std::collections::HashMap;
 
 /// A session silent for this many seconds is dropped by `expire`.
 const EXPIRE_SECONDS: u64 = 1800;
+/// Sessions waiting on the user (NeedsYou or Error) stay until handled, so they get a day.
+const EXPIRE_BLOCKED_SECONDS: u64 = 86400;
 
 const READING_TOOLS: &[&str] = &["Read", "Grep", "Glob", "WebFetch", "WebSearch"];
 const TYPING_TOOLS: &[&str] = &["Bash", "PowerShell", "Edit", "Write", "NotebookEdit"];
@@ -140,14 +142,18 @@ impl Sessions {
         Applied { turn_seconds, newly_blocked, session_known }
     }
 
-    // Task 9 calls this from the panel.
-    #[allow(dead_code)]
     pub fn dismiss(&mut self, id: &str) {
         self.map.remove(id);
     }
 
     pub fn expire(&mut self, now: u64) {
-        self.map.retain(|_, s| now.saturating_sub(s.last_seen) < EXPIRE_SECONDS);
+        self.map.retain(|_, s| {
+            let limit = match s.activity {
+                Activity::NeedsYou | Activity::Error => EXPIRE_BLOCKED_SECONDS,
+                _ => EXPIRE_SECONDS,
+            };
+            now.saturating_sub(s.last_seen) < limit
+        });
     }
 
     /// Highest-priority state across sessions. Idle sessions do not count as active.
@@ -318,6 +324,30 @@ mod tests {
         s.expire(1800);
         let ids: Vec<_> = s.list().into_iter().map(|v| v.id).collect();
         assert_eq!(ids, vec!["new".to_string()]); // old silent 1800, new silent 1799
+    }
+
+    #[test]
+    fn blocked_sessions_outlive_the_normal_expiry() {
+        let mut s = Sessions::new();
+        s.apply(&ev("PermissionRequest", "wait", None), 0);
+        s.apply(&ev("StopFailure", "err", None), 0);
+        s.apply(&ev("PreToolUse", "quiet", Some("Read")), 0);
+        s.expire(1800);
+        let mut ids: Vec<_> = s.list().into_iter().map(|v| v.id).collect();
+        ids.sort();
+        assert_eq!(ids, vec!["err".to_string(), "wait".to_string()]);
+        s.expire(86399);
+        assert_eq!(s.list().len(), 2);
+        s.expire(86400);
+        assert!(s.list().is_empty());
+    }
+
+    #[test]
+    fn dismiss_clears_a_blocked_session_immediately() {
+        let mut s = Sessions::new();
+        s.apply(&ev("PermissionRequest", "wait", None), 0);
+        s.dismiss("wait");
+        assert!(s.list().is_empty());
     }
 
     #[test]
