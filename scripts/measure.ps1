@@ -4,8 +4,12 @@
 # robot waves). Based on Measure-Tree in spikes/window/test.ps1.
 # The app runs with APPDATA and USERPROFILE pointed at a temp folder, so it never touches the
 # real state.json, endpoint.json or Claude Code settings. It is stopped and the folder removed.
-# Build first: npx tauri build --no-bundle
-param([int]$Seconds = 20)
+# Build first: npx tauri build --no-bundle (set CARGO_TARGET_DIR and pass -TargetDir to use another folder)
+param(
+  [int]$Seconds = 20,
+  # Folder holding release\desktop-assistant.exe; defaults to the repo target folder.
+  [string]$TargetDir = (Join-Path $PSScriptRoot "..\target")
+)
 
 function Tree($rootId) {
   $all = Get-CimInstance Win32_Process
@@ -44,7 +48,7 @@ function Measure-Tree($rootId, $seconds) {
   "processes={0} cpu={1:N2}% private={2:N0}MB workingSet={3:N0}MB {4}" -f $tree.Count, $cpu, $private, $working, $g
 }
 
-$exe = (Resolve-Path (Join-Path $PSScriptRoot "..\target\release\desktop-assistant.exe")).Path
+$exe = (Resolve-Path (Join-Path $TargetDir "release\desktop-assistant.exe")).Path
 $oldAppData = $env:APPDATA; $oldProfile = $env:USERPROFILE
 $sandbox = Join-Path ([System.IO.Path]::GetTempPath()) ("da-measure-" + $PID)
 $data = Join-Path $sandbox "appdata\DesktopAssistant"

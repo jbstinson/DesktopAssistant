@@ -128,8 +128,9 @@ Checked and passing:
 - A broken `rules.toml` shows the warning marker, a new needs-you event still alerts, and restoring the file clears the marker.
 - The robot and panel work on the portrait monitor (second monitor, x 3840, y -139, 1080x1920).
 - Resources, whole process tree (7 processes), from `scripts\measure.ps1`:
-  - Asleep: 0.00% CPU, 156 MB private, 312 MB working set, 0% GPU.
-  - Animating (waving, stepped animation at about 7 updates a second): 0.00% CPU, 161 MB private, 349 MB working set, 0.54% GPU average (0.59% peak). Before the stepped animation the GPU figure was about 9.7%.
+  - Asleep: 0.00% CPU, 163 MB private, 323 MB working set, 0% GPU.
+  - Animating (waving, stepped animation at about 7 updates a second): 0.02% CPU, 169 MB private, 360 MB working set, 0.33% GPU average (0.41% peak). Before the stepped animation the GPU figure was about 9.7%. One of two runs could not read the GPU counter; the other gave 0.33%.
+  - Compared with the earlier numbers (156 MB / 161 MB private, 0.54% GPU), private memory is about 7 to 8 MB higher and GPU is lower. Since then the character gained fingers, a book and a page turn animation. Both cases are under the 2% GPU target.
 - The robot looks distinct in every state (asleep, reading, typing, thinking, needs-you checked by screenshot).
 - A stopped app no longer slows Claude Code much: with the app closed, a quick `claude -p` took about 5.4 s with the hooks and about 4.4 s without (three runs each). `da-hook` takes about 0.2 s per event when the endpoint is stale.
 

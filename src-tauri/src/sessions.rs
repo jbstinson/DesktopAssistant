@@ -10,6 +10,9 @@ const EXPIRE_SECONDS: u64 = 1800;
 /// for hours with no hook in between), stay until handled, so they get a day.
 const EXPIRE_BLOCKED_SECONDS: u64 = 86400;
 
+/// A turn must last at least this many seconds before Stop shows Done; shorter turns go Idle.
+pub const DONE_MIN_SECONDS: u64 = 60;
+
 const READING_TOOLS: &[&str] = &["Read", "Grep", "Glob", "WebFetch", "WebSearch"];
 const TYPING_TOOLS: &[&str] = &["Bash", "PowerShell", "Edit", "Write", "NotebookEdit"];
 
@@ -149,7 +152,11 @@ impl Sessions {
             }
             "Stop" => {
                 turn_seconds = s.turn_start.take().map(|t| now.saturating_sub(t));
-                Some(Activity::Done)
+                // Done is for long turns only; a quick reply goes straight back to Idle.
+                match turn_seconds {
+                    Some(t) if t >= DONE_MIN_SECONDS => Some(Activity::Done),
+                    _ => Some(Activity::Idle),
+                }
             }
             // SessionStart and anything unrecognised: register the session, change nothing.
             _ => None,
@@ -283,6 +290,42 @@ mod tests {
     }
 
     #[test]
+    fn stop_below_limit_is_idle_and_at_limit_is_done() {
+        let mut s = Sessions::new();
+        s.apply(&ev("UserPromptSubmit", "a", None), 100);
+        let r = s.apply(&ev("Stop", "a", None), 100 + DONE_MIN_SECONDS - 1);
+        assert_eq!(r.turn_seconds, Some(DONE_MIN_SECONDS - 1));
+        assert_eq!(act(&s, "a"), Activity::Idle);
+        s.apply(&ev("UserPromptSubmit", "a", None), 200);
+        s.apply(&ev("Stop", "a", None), 200 + DONE_MIN_SECONDS);
+        assert_eq!(act(&s, "a"), Activity::Done);
+    }
+
+    #[test]
+    fn stop_without_turn_clock_is_idle() {
+        let mut s = Sessions::new();
+        s.apply(&ev("Stop", "a", None), 5);
+        assert_eq!(act(&s, "a"), Activity::Idle);
+    }
+
+    #[test]
+    fn short_stop_clears_needs_you_to_idle() {
+        let mut s = Sessions::new();
+        s.apply(&ev("UserPromptSubmit", "a", None), 1);
+        s.apply(&ev("PermissionRequest", "a", Some("Bash")), 2);
+        s.apply(&ev("Stop", "a", None), 3);
+        assert_eq!(act(&s, "a"), Activity::Idle);
+    }
+
+    #[test]
+    fn only_idle_sessions_stay_asleep() {
+        let mut s = Sessions::new();
+        s.apply(&ev("UserPromptSubmit", "a", None), 1);
+        s.apply(&ev("Stop", "a", None), 5);
+        assert_eq!(s.character_state(), "asleep");
+    }
+
+    #[test]
     fn stop_without_prompt_has_no_turn_seconds() {
         let mut s = Sessions::new();
         let r = s.apply(&ev("Stop", "a", None), 5);
@@ -393,7 +436,8 @@ mod tests {
     fn character_state_priority() {
         let mut s = Sessions::new();
         assert_eq!(s.character_state(), "asleep");
-        s.apply(&ev("Stop", "d", None), 1);
+        s.apply(&ev("UserPromptSubmit", "d", None), 0);
+        s.apply(&ev("Stop", "d", None), 100);
         assert_eq!(s.character_state(), "done");
         s.apply(&ev("UserPromptSubmit", "t", None), 1);
         assert_eq!(s.character_state(), "thinking");
@@ -543,15 +587,15 @@ mod tests {
         ] {
             let mut s = Sessions::new();
             s.apply(&ev("UserPromptSubmit", "a", None), 1);
-            s.apply(&ev("Stop", "a", None), 5);
+            s.apply(&ev("Stop", "a", None), 100);
             let mut e = ev("Notification", "a", None);
             e.notification_type = ty.map(String::from);
-            let r = s.apply(&e, 10);
+            let r = s.apply(&e, 110);
             assert_eq!(r.newly_blocked, blocks, "{ty:?}");
             let want = if blocks { Activity::NeedsYou } else { Activity::Done };
             assert_eq!(act(&s, "a"), want, "{ty:?}");
             if !blocks {
-                assert_eq!(s.list()[0].since, 5, "{ty:?}");
+                assert_eq!(s.list()[0].since, 100, "{ty:?}");
             }
         }
     }
@@ -588,16 +632,16 @@ mod tests {
     fn idle_prompt_changes_nothing() {
         let mut s = Sessions::new();
         s.apply(&ev("UserPromptSubmit", "a", None), 1);
-        s.apply(&ev("Stop", "a", None), 5);
+        s.apply(&ev("Stop", "a", None), 100);
         let mut e = ev("Notification", "a", None);
         e.notification_type = Some("idle_prompt".into());
-        let r = s.apply(&e, 10);
+        let r = s.apply(&e, 110);
         assert!(!r.newly_blocked);
         assert_eq!(act(&s, "a"), Activity::Done);
-        assert_eq!(s.list()[0].since, 5);
+        assert_eq!(s.list()[0].since, 100);
         // Other notification types still block.
         let mut e = ev("Notification", "a", None);
         e.notification_type = Some("permission_prompt".into());
-        assert!(s.apply(&e, 11).newly_blocked);
+        assert!(s.apply(&e, 111).newly_blocked);
     }
 }
