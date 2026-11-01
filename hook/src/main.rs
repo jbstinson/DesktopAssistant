@@ -10,8 +10,9 @@ use std::time::{Duration, Instant};
 
 /// How long any event may take.
 const EVENT_LIMIT: Duration = Duration::from_millis(1800);
-/// How long a permission request may take. Outlasts the app's longest hold (125 seconds)
-/// and ends inside the 130 second timeout of the settings entry.
+/// How long a permission request may take. Must stay above `HOLD_MAX_SECS` in
+/// src-tauri/src/app.rs (125) and below the PermissionRequest timeout in
+/// `installer::timeout_for` (130). An installer test checks this.
 const PERMISSION_LIMIT: Duration = Duration::from_secs(128);
 const POLL_EVERY: Duration = Duration::from_millis(250);
 

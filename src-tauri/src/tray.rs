@@ -177,6 +177,13 @@ fn toggle_quiet(items: &TrayItems, core: &Core, publish: &Publish, queue: &Queue
     publish();
 }
 
+/// Passes on the status already held. The status is bound first so the core lock is free when
+/// `finish` runs: `finish` locks it again, and a guard held across that call would never wake.
+fn with_current_status(core: &Core, finish: impl FnOnce(HookStatus)) {
+    let status = lock(core).hooks_status();
+    finish(status);
+}
+
 /// The Connect / Disconnect flow. Blocks on message boxes, so call it off the event thread.
 fn toggle_hooks(items: &TrayItems, core: &Core, publish: &Publish) {
     let settings_hook = claude_settings_path().zip(std::env::current_exe().ok().map(|e| hook_path_beside(&e)));
@@ -188,12 +195,12 @@ fn toggle_hooks(items: &TrayItems, core: &Core, publish: &Publish) {
     };
     let Some((settings, hook)) = settings_hook else {
         show_error("Cannot find your Claude Code settings folder (USERPROFILE is not set).");
-        finish(lock(core).hooks_status());
+        with_current_status(core, finish);
         return;
     };
     let enable = !current;
     if !ask(&confirm_text(&settings, enable)) {
-        finish(lock(core).hooks_status());
+        with_current_status(core, finish);
         return;
     }
     if let Err(e) = set_hooks(&settings, &hook, enable) {
@@ -307,6 +314,20 @@ mod tests {
             std::fs::write(&hook, b"").unwrap();
         }
         (dir.join(".claude").join("settings.json"), hook)
+    }
+
+    #[test]
+    fn status_is_passed_on_with_the_core_lock_free() {
+        let rules = crate::rules::RuleSet::parse(crate::rules::DEFAULT_RULES).unwrap();
+        let core: Core = Arc::new(Mutex::new(crate::app::Core::new(rules, None)));
+        let status = HookStatus { on: true, stale: false };
+        lock(&core).set_hooks_status(status);
+        let mut seen = None;
+        with_current_status(&core, |s| {
+            assert!(core.try_lock().is_ok(), "the core lock is still held");
+            seen = Some(s);
+        });
+        assert_eq!(seen, Some(status));
     }
 
     #[test]

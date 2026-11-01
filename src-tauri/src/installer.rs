@@ -23,8 +23,8 @@ pub enum Change {
     Remove,
 }
 
-/// How long Claude Code lets our hook run, in seconds. A permission request can be held for up
-/// to 125 seconds and the hook itself gives up at 128.
+/// How long Claude Code lets our hook run, in seconds. For PermissionRequest this must stay above
+/// `PERMISSION_LIMIT` in hook/src/main.rs (128), itself above `app::HOLD_MAX_SECS` (125).
 fn timeout_for(event: &str) -> u64 {
     if event == "PermissionRequest" {
         130
@@ -395,6 +395,18 @@ mod tests {
             assert_eq!(arr.len(), 1, "{ev}");
             assert_eq!(arr[0]["hooks"][0]["command"], CMD);
         }
+    }
+
+    #[test]
+    fn timeout_outlasts_the_hook_limit_which_outlasts_the_longest_hold() {
+        // The hook is a separate crate, so its limit is read from its source.
+        const HOOK_LIMIT: u64 = 128;
+        let hook = include_str!("../../hook/src/main.rs");
+        assert!(hook.contains(&format!("PERMISSION_LIMIT: Duration = Duration::from_secs({HOOK_LIMIT});")));
+        assert_eq!(crate::app::HOLD_MAX_SECS, 125);
+        assert!(crate::app::HOLD_MAX_SECS < HOOK_LIMIT);
+        assert!(HOOK_LIMIT < timeout_for("PermissionRequest"));
+        assert_eq!(timeout_for("PermissionRequest"), 130);
     }
 
     #[test]

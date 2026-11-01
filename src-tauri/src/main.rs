@@ -18,8 +18,8 @@ mod tray;
 mod voice;
 mod installer;
 
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{Emitter, Manager, PhysicalPosition, State, WebviewWindow, WindowEvent};
@@ -66,8 +66,11 @@ fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
+/// Milliseconds since startup, for permission timing. This clock never steps backward, so a
+/// changed system time cannot keep a lost request alive.
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+    static STARTED: OnceLock<Instant> = OnceLock::new();
+    STARTED.get_or_init(Instant::now).elapsed().as_millis() as u64
 }
 
 /// Opens or closes the panel by resizing the single window. The robot keeps its screen
@@ -270,7 +273,7 @@ fn main() {
                 open: Box::new({
                     let (core, queue, publish) = (core.clone(), queue.clone(), publish.clone());
                     move |ask| {
-                        let opened = lock(&core).open_permission(ask, now_ms());
+                        let opened = lock(&core).open_permission(ask, now_secs(), now_ms());
                         if let Some(alert) = opened.alert {
                             queue.push(alert);
                         }

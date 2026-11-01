@@ -33,10 +33,12 @@ pub struct Snapshot {
     pub hooks_on: bool,
 }
 
-/// Hold time in seconds. The hook gives up at 128, so the longest hold ends first.
+/// Hold time in seconds.
 const HOLD_DEFAULT_SECS: u64 = 120;
 const HOLD_MIN_SECS: u64 = 10;
-const HOLD_MAX_SECS: u64 = 125;
+/// Must stay below `PERMISSION_LIMIT` in hook/src/main.rs (128), which must stay below the
+/// PermissionRequest timeout in `installer::timeout_for` (130). An installer test checks this.
+pub const HOLD_MAX_SECS: u64 = 125;
 /// Requests past this many are handed straight back.
 const MAX_WAITING: usize = 64;
 
@@ -62,9 +64,8 @@ pub struct Core {
     hooks_stale: bool,
 }
 
-/// Shown when our hook entries exist but point at a different da-hook.exe than this app's.
-pub const HOOKS_STALE_WARNING: &str =
-    "The Claude Code hook path is out of date: use the tray menu, Connect to Claude Code, to repair it";
+/// Shown when our hook entries exist but are not current: a different da-hook.exe or an old timeout.
+pub const HOOKS_STALE_WARNING: &str = "Hooks need updating. Use Connect in the tray to repair them.";
 
 fn state_name(a: Activity) -> &'static str {
     match a {
@@ -114,8 +115,9 @@ impl Core {
 
     /// Applies the session event and alert for a permission request, then holds the request
     /// if it can be answered here. Anything else hands it straight back.
-    pub fn open_permission(&mut self, ask: PermissionAsk, now_ms: u64) -> Opened {
-        let alert = self.handle(ask.to_event(), now_ms / 1000);
+    /// `now` is the session clock in seconds; `now_ms` is the permission clock.
+    pub fn open_permission(&mut self, ask: PermissionAsk, now: u64, now_ms: u64) -> Opened {
+        let alert = self.handle(ask.to_event(), now);
         self.pending.tick(now_ms);
         let kind = permission::classify(&ask.tool_name);
         let can_hold = kind != Kind::HandBack
@@ -509,7 +511,8 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         let s = core.snapshot();
         assert!(!s.hooks_on);
         let w = s.warning.unwrap();
-        assert!(w.contains("out of date") && w.contains("tray"), "{w}");
+        assert_eq!(w, HOOKS_STALE_WARNING);
+        assert!(w.contains("need updating") && w.contains("tray"), "{w}");
         core.set_hooks_status(HookStatus { on: true, stale: false });
         let s = core.snapshot();
         assert!(s.hooks_on);
@@ -552,8 +555,8 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     #[test]
     fn hold_is_on_by_default_and_ids_are_random_hex() {
         let mut core = Core::new(defaults(), None);
-        let a = core.open_permission(ask("a", "Bash"), 0);
-        let b = core.open_permission(ask("b", "Bash"), 0);
+        let a = core.open_permission(ask("a", "Bash"), 0 / 1000, 0);
+        let b = core.open_permission(ask("b", "Bash"), 0 / 1000, 0);
         assert!(a.hold && b.hold);
         assert_ne!(a.id, b.id);
         for o in [&a, &b] {
@@ -567,12 +570,12 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     fn tools_handled_elsewhere_are_handed_back() {
         let mut core = Core::new(defaults(), None);
         for tool in ["AskUserQuestion", "ExitPlanMode", "Mystery", "", "mcp__"] {
-            let o = core.open_permission(ask("a", tool), 0);
+            let o = core.open_permission(ask("a", tool), 0 / 1000, 0);
             assert!(!o.hold, "{tool}");
             assert_eq!(core.poll_permission(&o.id, 1).0, Polled::Gone, "{tool}");
         }
         for tool in ["Bash", "PowerShell", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "mcp__x__y"] {
-            assert!(core.open_permission(ask("a", tool), 0).hold, "{tool}");
+            assert!(core.open_permission(ask("a", tool), 0 / 1000, 0).hold, "{tool}");
         }
     }
 
@@ -583,7 +586,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         for setup in setups {
             let mut core = Core::new(defaults(), None);
             setup(&mut core);
-            let o = core.open_permission(ask("a", "Bash"), 0);
+            let o = core.open_permission(ask("a", "Bash"), 0 / 1000, 0);
             assert!(!o.hold);
             assert_eq!(core.poll_permission(&o.id, 1).0, Polled::Gone);
             assert_eq!(o.alert.unwrap().speak.as_deref(), Some("proj needs you"));
@@ -599,22 +602,22 @@ when = { event = \"SessionEnd\", project = \"proj\" }
             [|c| c.set_visible(true), |c| c.set_quiet(false), |c| c.set_approve_in_window(true)];
         for (off, on) in turn_off.into_iter().zip(turn_on) {
             let mut core = Core::new(defaults(), None);
-            let a = core.open_permission(ask("a", "Bash"), 0);
-            let b = core.open_permission(ask("b", "Bash"), 0);
+            let a = core.open_permission(ask("a", "Bash"), 0 / 1000, 0);
+            let b = core.open_permission(ask("b", "Bash"), 0 / 1000, 0);
             off(&mut core);
             on(&mut core);
             // Coming back on approves nothing and holds nothing old.
             assert_eq!(core.poll_permission(&a.id, 100).0, Polled::Gone);
             assert_eq!(core.poll_permission(&b.id, 100).0, Polled::Gone);
             assert!(core.answer_permission(&a.id, Choice::AllowOnce, 5000).is_err());
-            assert!(core.open_permission(ask("c", "Bash"), 200).hold);
+            assert!(core.open_permission(ask("c", "Bash"), 200 / 1000, 200).hold);
         }
     }
 
     #[test]
     fn turning_quiet_off_or_showing_releases_nothing() {
         let mut core = Core::new(defaults(), None);
-        let a = core.open_permission(ask("a", "Bash"), 0);
+        let a = core.open_permission(ask("a", "Bash"), 0 / 1000, 0);
         core.set_quiet(false);
         core.set_visible(true);
         core.set_approve_in_window(true);
@@ -625,17 +628,17 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     fn more_than_64_waiting_are_handed_back() {
         let mut core = Core::new(defaults(), None);
         for i in 0..64 {
-            assert!(core.open_permission(ask("a", "Bash"), 0).hold, "{i}");
+            assert!(core.open_permission(ask("a", "Bash"), 0 / 1000, 0).hold, "{i}");
         }
-        assert!(!core.open_permission(ask("a", "Bash"), 0).hold);
+        assert!(!core.open_permission(ask("a", "Bash"), 0 / 1000, 0).hold);
         // Once the old ones are lost there is room again.
-        assert!(core.open_permission(ask("a", "Bash"), 3000).hold);
+        assert!(core.open_permission(ask("a", "Bash"), 3000 / 1000, 3000).hold);
     }
 
     #[test]
     fn a_request_alerts_once_and_the_later_notification_does_not_double_it() {
         let mut core = Core::new(defaults(), None);
-        let first = core.open_permission(ask("a", "Bash"), 5000).alert.unwrap();
+        let first = core.open_permission(ask("a", "Bash"), 5000 / 1000, 5000).alert.unwrap();
         assert_eq!(first.tier, Tier::NeedsYou);
         assert_eq!(first.sound.as_deref(), Some("alert"));
         assert_eq!(core.snapshot().sessions[0].terminal_pid, Some(7));
@@ -646,7 +649,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         note.notification_type = Some("permission_prompt".into());
         let later = core.handle(note, 6).unwrap();
         assert_eq!((later.sound, later.speak), (None, None));
-        let again = core.open_permission(ask("a", "Bash"), 7000).alert.unwrap();
+        let again = core.open_permission(ask("a", "Bash"), 7000 / 1000, 7000).alert.unwrap();
         assert_eq!((again.sound, again.speak), (None, None));
         assert_eq!(core.snapshot().waiting, 1);
     }
@@ -656,7 +659,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         let mut core = Core::new(defaults(), None);
         let mut sub = ask("a", "Bash");
         sub.agent_id = Some("ag".into());
-        core.open_permission(sub, 1000);
+        core.open_permission(sub, 1000 / 1000, 1000);
         // A sibling working on something else must not clear the wait.
         core.handle(ev("PreToolUse", "a", Some("Read")), 2);
         assert_eq!(core.snapshot().waiting, 1);
@@ -665,7 +668,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     #[test]
     fn a_decision_comes_back_once_as_the_exact_reply() {
         let mut core = Core::new(defaults(), None);
-        let o = core.open_permission(ask("a", "Bash"), 0);
+        let o = core.open_permission(ask("a", "Bash"), 0 / 1000, 0);
         assert!(core.answer_permission(&o.id, Choice::AllowOnce, 999).is_err());
         assert_eq!(core.poll_permission(&o.id, 999).0, Polled::Waiting);
         core.answer_permission(&o.id, Choice::AllowOnce, 1000).unwrap();
@@ -677,12 +680,12 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     #[test]
     fn deny_replies_and_release_is_gone() {
         let mut core = Core::new(defaults(), None);
-        let o = core.open_permission(ask("a", "Bash"), 0);
+        let o = core.open_permission(ask("a", "Bash"), 0 / 1000, 0);
         core.answer_permission(&o.id, Choice::Deny, 1000).unwrap();
         let want = permission::reply(Choice::Deny, None).unwrap().to_string();
         assert_eq!(core.poll_permission(&o.id, 1100).0, Polled::Reply(want));
 
-        let o = core.open_permission(ask("a", "Bash"), 2000);
+        let o = core.open_permission(ask("a", "Bash"), 2000 / 1000, 2000);
         core.answer_permission(&o.id, Choice::Release, 2000).unwrap();
         assert_eq!(core.poll_permission(&o.id, 2100).0, Polled::Gone);
     }
@@ -692,7 +695,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         let rule = Rule { tool: "Bash".into(), content: "node *".into(), destination: "localSettings".into() };
         for choice in [Choice::AllowSession, Choice::AlwaysAllow] {
             let mut core = Core::new(defaults(), None);
-            let o = core.open_permission(with_rule("a"), 0);
+            let o = core.open_permission(with_rule("a"), 0 / 1000, 0);
             core.answer_permission(&o.id, choice, 1000).unwrap();
             let want = permission::reply(choice, Some(&rule)).unwrap().to_string();
             assert_eq!(core.poll_permission(&o.id, 1100).0, Polled::Reply(want));
@@ -704,7 +707,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         let mut core = Core::new(defaults(), None);
         let mut other_tool = with_rule("a");
         other_tool.tool_name = "PowerShell".into();
-        let o = core.open_permission(other_tool, 0);
+        let o = core.open_permission(other_tool, 0 / 1000, 0);
         assert!(o.hold);
         assert!(core.answer_permission(&o.id, Choice::AlwaysAllow, 1000).is_err());
         assert!(core.answer_permission(&o.id, Choice::AllowSession, 1000).is_err());
@@ -715,7 +718,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     fn a_decided_allow_leaves_needs_you_until_the_next_tool_or_stop() {
         for next in ["PreToolUse", "Stop"] {
             let mut core = Core::new(defaults(), None);
-            let o = core.open_permission(ask("a", "Bash"), 0);
+            let o = core.open_permission(ask("a", "Bash"), 0 / 1000, 0);
             core.answer_permission(&o.id, Choice::AllowOnce, 1000).unwrap();
             core.poll_permission(&o.id, 1100);
             assert_eq!(core.snapshot().waiting, 1);
@@ -727,7 +730,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     #[test]
     fn hold_defaults_to_120_seconds() {
         let mut core = Core::new(defaults(), None);
-        let o = core.open_permission(ask("a", "Bash"), 0);
+        let o = core.open_permission(ask("a", "Bash"), 0 / 1000, 0);
         keep_polling(&mut core, &o.id, 2000, 120_000);
         assert_eq!(core.poll_permission(&o.id, 120_000).0, Polled::Gone);
     }
@@ -737,7 +740,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         for (set, limit) in [(1, 10_000), (10, 10_000), (60, 60_000), (125, 125_000), (500, 125_000)] {
             let mut core = Core::new(defaults(), None);
             core.set_hold(set);
-            let o = core.open_permission(ask("a", "Bash"), 0);
+            let o = core.open_permission(ask("a", "Bash"), 0 / 1000, 0);
             keep_polling(&mut core, &o.id, 2000, limit);
             assert_eq!(core.poll_permission(&o.id, limit - 1).0, Polled::Waiting, "{set}");
             assert_eq!(core.poll_permission(&o.id, limit).0, Polled::Gone, "{set}");
@@ -748,7 +751,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     fn tick_permissions_reports_only_changes() {
         let mut core = Core::new(defaults(), None);
         assert!(!core.tick_permissions(0));
-        core.open_permission(ask("a", "Bash"), 0);
+        core.open_permission(ask("a", "Bash"), 0 / 1000, 0);
         assert!(!core.tick_permissions(2999));
         assert!(core.tick_permissions(3000));
         assert!(!core.tick_permissions(3001));
@@ -757,8 +760,8 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     #[test]
     fn polling_one_request_clears_out_a_lost_one_and_says_so() {
         let mut core = Core::new(defaults(), None);
-        let lost = core.open_permission(ask("a", "Bash"), 0);
-        let live = core.open_permission(ask("b", "Bash"), 0);
+        let lost = core.open_permission(ask("a", "Bash"), 0 / 1000, 0);
+        let live = core.open_permission(ask("b", "Bash"), 0 / 1000, 0);
         assert!(!core.poll_permission(&live.id, 2000).1);
         let (polled, changed) = core.poll_permission(&live.id, 3000);
         assert_eq!(polled, Polled::Waiting);
@@ -769,7 +772,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     #[test]
     fn collecting_a_decision_counts_as_a_change() {
         let mut core = Core::new(defaults(), None);
-        let o = core.open_permission(ask("a", "Bash"), 0);
+        let o = core.open_permission(ask("a", "Bash"), 0 / 1000, 0);
         core.answer_permission(&o.id, Choice::Deny, 1000).unwrap();
         assert!(core.poll_permission(&o.id, 1100).1);
     }
@@ -777,7 +780,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     #[test]
     fn the_input_never_reaches_a_snapshot() {
         let mut core = Core::new(defaults(), None);
-        core.open_permission(with_rule("a"), 0);
+        core.open_permission(with_rule("a"), 0 / 1000, 0);
         let text = format!("{:?}", core.snapshot());
         assert!(!text.contains("node") && !text.contains("Show version"), "{text}");
     }

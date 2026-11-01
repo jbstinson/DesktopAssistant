@@ -173,7 +173,9 @@ impl Output for WindowsOutput {
                 }
             }
             let t = slot.as_mut().unwrap();
-            apply_voice(t, self.voice.lock().unwrap_or_else(|e| e.into_inner()).clone());
+            // Bound first so the voice lock is not held across the speech calls.
+            let voice = self.voice.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            apply_voice(t, voice);
             let (tx, rx) = mpsc::channel::<()>();
             let tx_end = Mutex::new(tx.clone());
             let tx_stop = Mutex::new(tx);
