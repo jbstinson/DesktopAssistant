@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+      body { display: grid; place-items: center; }
+      #robot { width: 140px; height: 140px; border-radius: 50%; background: #3b82f6; }
+      .animate #robot { animation: bob 1.2s ease-in-out infinite; }
+      @keyframes bob { 50% { transform: translateY(-6px); } }
+    </style>
+  </head>
+  <body>
+    <div id="robot"></div>
+    <script>
+      const { invoke } = window.__TAURI__.core;
+      document.getElementById("robot").addEventListener("mousedown", () => invoke("clicked"));
+      invoke("should_animate").then((on) => document.body.classList.toggle("animate", on));
+    </script>
+  </body>
+</html>
