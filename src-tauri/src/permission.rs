@@ -26,8 +26,6 @@ impl std::fmt::Debug for Rule {
     }
 }
 
-// The panel command builds the answers in Task 5.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Choice {
     Deny,
@@ -35,6 +33,20 @@ pub enum Choice {
     AllowSession,
     AlwaysAllow,
     Release,
+}
+
+impl Choice {
+    /// The panel's names for the five answers. Anything else is not an answer.
+    pub fn parse(name: &str) -> Option<Choice> {
+        Some(match name {
+            "deny" => Choice::Deny,
+            "allow_once" => Choice::AllowOnce,
+            "allow_session" => Choice::AllowSession,
+            "always_allow" => Choice::AlwaysAllow,
+            "release" => Choice::Release,
+            _ => return None,
+        })
+    }
 }
 
 pub fn classify(tool: &str) -> Kind {
@@ -72,8 +84,6 @@ pub fn vet_suggestion(suggestions: &Value, request_tool: &str) -> Option<Rule> {
     Some(Rule { tool: tool.to_string(), content: content.to_string(), destination: destination.to_string() })
 }
 
-// The panel shows this in Task 5.
-#[allow(dead_code)]
 pub fn is_broad(rule: &Rule) -> bool {
     rule.content.trim_end().ends_with('*')
 }
@@ -94,8 +104,6 @@ pub fn reply(choice: Choice, rule: Option<&Rule>) -> Option<Value> {
     }
 }
 
-// The panel shows this in Task 5.
-#[allow(dead_code)]
 pub fn describe_rule(rule: &Rule) -> String {
     let base = format!("{}: {}", rule.tool, rule.content);
     if !is_broad(rule) {
@@ -119,6 +127,18 @@ mod tests {
 
     fn sugg(content: Value) -> Value {
         json!([{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":content}],"behavior":"allow","destination":"localSettings"}])
+    }
+
+    #[test]
+    fn choices_parse_from_exact_names_only() {
+        assert_eq!(Choice::parse("deny"), Some(Choice::Deny));
+        assert_eq!(Choice::parse("allow_once"), Some(Choice::AllowOnce));
+        assert_eq!(Choice::parse("allow_session"), Some(Choice::AllowSession));
+        assert_eq!(Choice::parse("always_allow"), Some(Choice::AlwaysAllow));
+        assert_eq!(Choice::parse("release"), Some(Choice::Release));
+        for bad in ["", "allow", "Deny", "ALLOW_ONCE", " deny", "deny ", "approve", "always", "allow-once"] {
+            assert_eq!(Choice::parse(bad), None, "{bad:?}");
+        }
     }
 
     #[test]

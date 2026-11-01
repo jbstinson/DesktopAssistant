@@ -1,5 +1,6 @@
 import { mountCharacter } from "./character.svg.js";
 import { mountPanel } from "./panel.js";
+import { mountApproval } from "./approval.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -26,14 +27,27 @@ const panel = mountPanel(panelEl, {
 
 let open = false;
 let busy = false;
+// Panel changes run one after another, so an automatic open and a click cannot interleave.
+let chain = Promise.resolve();
+// The request the panel last saw, and whether the panel opened itself for it.
+let lastRequestId = null;
+let autoOpened = false;
+
+const approval = mountApproval(document.getElementById("approval"), panelEl, {
+  onAnswer: (id, choice) => invoke("answer_permission", { id, choice }),
+  onRefresh: () => invoke("get_snapshot").then(apply),
+  cursorInWindow: () => invoke("cursor_in_window"),
+  // The cursor is checked only once the panel is open and has its size.
+  prepare: () => chain,
+});
 
 // The window grows around the robot, so ask Rust to resize first and place things after.
-async function togglePanel() {
-  if (busy) return;
+async function applyPanel(want) {
+  if (open === want) return;
   busy = true;
   try {
-    const layout = await invoke("set_panel", { open: !open });
-    open = !open;
+    const layout = await invoke("set_panel", { open: want });
+    open = want;
     document.body.dataset.panel = open ? "open" : "closed";
     if (open) {
       robot.style.left = `${layout.robot_x}px`;
@@ -45,11 +59,38 @@ async function togglePanel() {
       robot.style.left = robot.style.top = "";
     }
     panel.setOpen(open);
+    approval.setOpen(open);
   } catch (e) {
     console.error("set_panel failed", e);
   } finally {
     busy = false;
   }
+}
+
+function setPanelOpen(want) {
+  chain = chain.then(() => applyPanel(want));
+  return chain;
+}
+
+function togglePanel() {
+  if (busy) return;
+  // Once the user chooses, the panel no longer closes itself.
+  autoOpened = false;
+  setPanelOpen(!open);
+}
+
+// A new request opens the panel without taking focus. A panel opened that way closes when
+// the requests run out; one the user already had open stays and returns to the session list.
+function followRequests(snap) {
+  const id = snap.request ? snap.request.id : null;
+  if (id !== null && id !== lastRequestId && !open) {
+    autoOpened = true;
+    setPanelOpen(true);
+  } else if (id === null && lastRequestId !== null) {
+    if (autoOpened) setPanelOpen(false);
+    autoOpened = false;
+  }
+  lastRequestId = id;
 }
 
 let pressed = false;
@@ -86,7 +127,11 @@ function apply(snap) {
   body.dataset.warning = String(Boolean(snap.warning));
   parts.badgeCount.textContent = snap.waiting > 1 ? String(snap.waiting) : "";
   robot.title = snap.warning || "";
-  panel.render(snap);
+  body.dataset.request = String(Boolean(snap.request));
+  followRequests(snap);
+  approval.render(snap);
+  // A request takes over the view, so the session list waits until it ends.
+  if (!snap.request) panel.render(snap);
 }
 
 // Listen first, then ask once for the current state so nothing emitted

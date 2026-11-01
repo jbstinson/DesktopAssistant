@@ -5,7 +5,10 @@
 # Briefly moves the mouse; restores the cursor and stops the app afterwards.
 # The app runs with APPDATA and USERPROFILE pointed at a temp folder, so it never touches the
 # real state.json, endpoint.json or Claude Code settings.
-# Build first: npx tauri build --no-bundle
+# Also checks approval requests: the panel opens by itself without taking focus, a click while
+# the buttons are locked is ignored, and an accepted click answers the request.
+# Build first: npx tauri build --no-bundle. Set DA_EXE to use an exe built somewhere else
+# (for example under a custom CARGO_TARGET_DIR).
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type @'
 using System;
@@ -27,9 +30,28 @@ public static class U {
 '@
 [U]::SetProcessDPIAware() | Out-Null
 
+# Requests posted to the app must be polled, as the hook does, or the app drops them after 3 seconds.
+$script:ids = @{}; $script:results = @{}; $script:nextPoll = Get-Date; $script:hdr = $null; $script:port = 0
+function PollAll {
+  foreach ($id in @($script:ids.Keys)) {
+    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$($script:port)/permission/$id" -Headers $script:hdr -UseBasicParsing -SkipHttpErrorCheck
+    if ([int]$r.StatusCode -ne 204) { $script:results[$id] = "$([int]$r.StatusCode) $($r.Content)"; $script:ids.Remove($id) }
+  }
+}
 function Pump($ms) {
   $end = (Get-Date).AddMilliseconds($ms)
-  while ((Get-Date) -lt $end) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 15 }
+  while ((Get-Date) -lt $end) {
+    [System.Windows.Forms.Application]::DoEvents()
+    if ($script:ids.Count -gt 0 -and (Get-Date) -ge $script:nextPoll) { PollAll; $script:nextPoll = (Get-Date).AddMilliseconds(250) }
+    Start-Sleep -Milliseconds 15
+  }
+}
+function Ask($cmd) {
+  $b = [ordered]@{ session_id = "s1"; cwd = "C:\git\myproject"; source = "cli"; tool_name = "Bash"; tool_input = @{ command = $cmd }
+    permission_suggestions = @(@{ type = "addRules"; rules = @(@{ toolName = "Bash"; ruleContent = $cmd }); behavior = "allow"; destination = "localSettings" }) }
+  $r = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$($script:port)/permission" -Headers $script:hdr -Body ($b | ConvertTo-Json -Depth 10 -Compress) -ContentType "application/json"
+  $script:ids[$r.id] = $true
+  $r.id
 }
 function Fg() {
   $sb = New-Object System.Text.StringBuilder 100
@@ -44,7 +66,7 @@ function Click($x, $y) {
   Pump 500
 }
 
-$exe = (Resolve-Path (Join-Path $PSScriptRoot "..\target\release\desktop-assistant.exe")).Path
+$exe = if ($env:DA_EXE) { $env:DA_EXE } else { (Resolve-Path (Join-Path $PSScriptRoot "..\target\release\desktop-assistant.exe")).Path }
 $start = [System.Windows.Forms.Cursor]::Position
 $app = $null; $a = $null; $b = $null
 $oldAppData = $env:APPDATA; $oldProfile = $env:USERPROFILE
@@ -189,6 +211,53 @@ try {
   $hwnd = Launch
   $m = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
   "malformed state.json put the window bottom-right on the primary: " + ((Rect) -eq "$($m.Right - $w),$($m.Bottom - $h) ${w}x$h") + " (rect=$(Rect))"
+
+  # 9. An approval request opens the panel by itself without taking focus; a click while the
+  # buttons are locked is ignored; a click after the lock answers the request.
+  Stop-Process -Id $app.Id -Force; Pump 800
+  [System.IO.File]::WriteAllText($stateFile, "{`"x`":$overlayX,`"y`":$overlayY}")
+  $hwnd = Launch
+  $ep = Get-Content (Join-Path $env:APPDATA "DesktopAssistant\endpoint.json") -Raw | ConvertFrom-Json
+  $script:port = $ep.port; $script:hdr = @{ Authorization = "Bearer $($ep.token)" }
+  $r = New-Object U+RECT; [U]::GetWindowRect($hwnd, [ref]$r) | Out-Null
+  $x = $r.L; $y = $r.T; $w = $r.R - $r.L; $h = $r.B - $r.T; $s = $w / 200.0
+  Click $boxPoint.X $boxPoint.Y
+  $box.Text = ""; $box.SelectionStart = 0
+  "approval precondition, typing window focused: " + ([U]::GetForegroundWindow() -eq $typing)
+  $first = Ask "node first.js"
+  $second = Ask "node second.js"
+  Pump 2000
+  [U]::GetWindowRect($hwnd, [ref]$r) | Out-Null
+  $pw = $r.R - $r.L; $ph = $r.B - $r.T
+  "request opened the panel by itself: " + (($pw -eq [int](360 * $s)) -and ($ph -eq [int](480 * $s))) + " (rect=$(Rect))"
+  "auto-open kept focus: " + ([U]::GetForegroundWindow() -eq $typing) + " (foreground is $(Fg))"
+  [System.Windows.Forms.SendKeys]::SendWait("a"); Pump 200
+  "typing still lands after auto-open: " + ($box.Text -eq "a")
+  $style = [U]::GetExStyle($hwnd, -20).ToInt64()
+  "noactivate kept with a request showing: " + [bool]($style -band 0x8000000)
+  # Deny sits at the far left of the button row, 50 px above the panel's bottom when the panel
+  # is below the robot, otherwise 195 px above the window's bottom.
+  $denyX = $r.L + [int](38 * $s)
+  $denyY = if ($r.T -eq $y + [int](30 * $s) -or $r.T -eq $y) { $r.T + [int](430 * $s) } else { $r.T + [int](285 * $s) }
+  # The cursor came from outside the panel, so after the lock a click is accepted.
+  Click $denyX $denyY
+  "accepted click answered the first request: " + ($script:results[$first] -like '200*deny*') + " ($($script:results[$first]))"
+  "focus kept after accepted click: " + ([U]::GetForegroundWindow() -eq $typing) + " (foreground is $(Fg))"
+  [System.Windows.Forms.SendKeys]::SendWait("b"); Pump 200
+  "typing still lands after accepted click: " + ($box.Text -eq "ab")
+  # The second request became current with the cursor already over the panel: still locked.
+  Pump 2500
+  Click $denyX $denyY
+  "locked click ignored (second request still waiting): " + (-not $script:results.ContainsKey($second))
+  "focus kept after locked click: " + ([U]::GetForegroundWindow() -eq $typing) + " (foreground is $(Fg))"
+  # Leaving the panel and coming back unlocks it.
+  [U]::SetCursorPos($areaL + 900, $areaT + 100) | Out-Null; Pump 600
+  Click $denyX $denyY
+  "click after leaving and coming back answered it: " + ($script:results[$second] -like '200*deny*')
+  Pump 800
+  [U]::GetWindowRect($hwnd, [ref]$r) | Out-Null
+  "panel closed itself when no requests remained: " + ((Rect) -eq "$x,$y ${w}x$h") + " (rect=$(Rect))"
+  "focus kept at the end: " + ([U]::GetForegroundWindow() -eq $typing) + " (foreground is $(Fg))"
 }
 finally {
   [System.Windows.Forms.Cursor]::Position = $start

@@ -142,6 +142,10 @@ pub fn set_visible(app: &AppHandle, visible: bool) {
     if let Some(core) = app.try_state::<Core>() {
         lock(&core).set_visible(visible);
     }
+    // Hiding released the held requests; the panel must stop showing them.
+    if let Some(publish) = app.try_state::<Publish>() {
+        publish();
+    }
     if visible {
         overlay::pause(false);
         show_window(&window, SW_SHOWNOACTIVATE);
@@ -170,7 +174,7 @@ pub fn quit(app: &AppHandle) {
 }
 
 fn toggle_quiet(items: &TrayItems, core: &Core, publish: &Publish, queue: &Queue) {
-    let quiet = !lock(core).snapshot().quiet;
+    let quiet = !lock(core).snapshot(crate::now_ms()).quiet;
     lock(core).set_quiet(quiet);
     queue.set_quiet(quiet);
     let _ = items.quiet.set_checked(quiet);
@@ -187,7 +191,7 @@ fn with_current_status(core: &Core, finish: impl FnOnce(HookStatus)) {
 /// The Connect / Disconnect flow. Blocks on message boxes, so call it off the event thread.
 fn toggle_hooks(items: &TrayItems, core: &Core, publish: &Publish) {
     let settings_hook = claude_settings_path().zip(std::env::current_exe().ok().map(|e| hook_path_beside(&e)));
-    let current = lock(core).snapshot().hooks_on;
+    let current = lock(core).snapshot(crate::now_ms()).hooks_on;
     let finish = |status: HookStatus| {
         lock(core).set_hooks_status(status);
         let _ = items.hooks.set_checked(status.on);

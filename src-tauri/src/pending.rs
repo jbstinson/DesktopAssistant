@@ -10,8 +10,6 @@ const LOCK_MS: u64 = 1000;
 const LOST_POLL_MS: u64 = 3000;
 
 /// Holds the tool's input, so this type deliberately has no Debug.
-// The panel reads the remaining fields in Task 5.
-#[allow(dead_code)]
 #[derive(Clone)]
 pub struct Request {
     pub id: String,
@@ -22,6 +20,15 @@ pub struct Request {
     pub input: Value,
     pub description: Option<String>,
     pub rule: Option<Rule>,
+}
+
+/// What the panel needs to know about the current request's clocks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Timing {
+    /// Milliseconds of click lock left.
+    pub locked_ms: u64,
+    /// Whole seconds of hold left, rounded up.
+    pub remaining_secs: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,6 +157,19 @@ impl Pending {
         self.entries.iter().find(|e| e.decided.is_none()).map(|e| &e.req)
     }
 
+    pub fn current_timing(&self, now_ms: u64) -> Option<Timing> {
+        let e = self.entries.iter().find(|e| e.decided.is_none())?;
+        let since = e.current_since_ms.unwrap_or(now_ms);
+        let locked_ms = LOCK_MS.saturating_sub(now_ms.saturating_sub(since));
+        let left_ms = e.hold_ms.saturating_sub(now_ms.saturating_sub(e.opened_ms));
+        Some(Timing { locked_ms, remaining_secs: left_ms.div_ceil(1000) })
+    }
+
+    /// Requests still waiting for an answer.
+    pub fn waiting_count(&self) -> usize {
+        self.entries.iter().filter(|e| e.decided.is_none()).count()
+    }
+
     /// The stored rule of a request, decided or not.
     pub fn rule_of(&self, id: &str) -> Option<&Rule> {
         self.entries.iter().find(|e| e.req.id == id).and_then(|e| e.req.rule.as_ref())
@@ -189,6 +209,29 @@ mod tests {
     }
 
     fn cur(p: &Pending) -> Option<&str> { p.current().map(|r| r.id.as_str()) }
+
+    #[test]
+    fn timing_of_the_current_request() {
+        let mut p = Pending::new(120);
+        assert!(p.current_timing(0).is_none());
+        p.open(req("a"), 5000);
+        let t = p.current_timing(5400).unwrap();
+        assert_eq!((t.locked_ms, t.remaining_secs), (600, 120));
+        let t = p.current_timing(6000).unwrap();
+        assert_eq!((t.locked_ms, t.remaining_secs), (0, 119));
+        assert_eq!(p.current_timing(5000 + 119_001).unwrap().remaining_secs, 1);
+        assert_eq!(p.current_timing(5000 + 125_000).unwrap().remaining_secs, 0);
+    }
+
+    #[test]
+    fn waiting_count_leaves_out_decided_requests() {
+        let mut p = Pending::new(120);
+        p.open(req("a"), 0);
+        p.open(req("b"), 0);
+        assert_eq!(p.waiting_count(), 2);
+        p.answer("a", Choice::Deny, 1000).unwrap();
+        assert_eq!((p.count(), p.waiting_count()), (2, 1));
+    }
 
     #[test]
     fn fifo_and_new_request_never_replaces_current() {

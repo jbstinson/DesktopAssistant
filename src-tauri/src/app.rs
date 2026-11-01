@@ -8,6 +8,7 @@ use crate::permission::{self, Choice, Kind};
 use crate::rules::{Alert, RuleSet, Tier};
 use crate::sessions::{Activity, Sessions};
 use serde::Serialize;
+use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SessionView {
@@ -22,7 +23,27 @@ pub struct SessionView {
     pub jumpable: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// The request the panel is asking about. It holds the tool's input, so this type has no
+/// Debug, and it reaches the webview only through the snapshot. Never logged or saved.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub struct RequestView {
+    pub id: String,
+    pub project: String,
+    pub source: String,
+    pub tool: String,
+    /// "command", "edit", "web" or "mcp".
+    pub kind: &'static str,
+    /// What the panel displays; the page picks the fields for the kind.
+    pub input: Value,
+    pub description: Option<String>,
+    /// The rule Allow this session and Always allow would save, if there is one.
+    pub rule_text: Option<String>,
+    pub rule_broad: bool,
+    pub locked_ms: u64,
+    pub remaining_secs: u64,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct Snapshot {
     pub state: String,
     /// Sessions currently waiting on the user (needs-you).
@@ -31,6 +52,24 @@ pub struct Snapshot {
     pub warning: Option<String>,
     pub quiet: bool,
     pub hooks_on: bool,
+    pub request: Option<RequestView>,
+    /// Requests still waiting, the current one included.
+    pub request_count: usize,
+}
+
+/// Leaves the request out, so a debug print can never show a command.
+impl std::fmt::Debug for Snapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Snapshot")
+            .field("state", &self.state)
+            .field("waiting", &self.waiting)
+            .field("sessions", &self.sessions)
+            .field("warning", &self.warning)
+            .field("quiet", &self.quiet)
+            .field("hooks_on", &self.hooks_on)
+            .field("request_count", &self.request_count)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Hold time in seconds.
@@ -163,8 +202,6 @@ impl Core {
     }
 
     /// The only way to a decision. Reached by a panel click and nothing else.
-    // The panel command calling this arrives in Task 5.
-    #[allow(dead_code)]
     pub fn answer_permission(&mut self, id: &str, choice: Choice, now_ms: u64) -> Result<(), String> {
         self.pending.answer(id, choice, now_ms)
     }
@@ -259,7 +296,33 @@ impl Core {
             .map(|v| jump::target_for(&v.source, v.terminal_pid))
     }
 
-    pub fn snapshot(&self) -> Snapshot {
+    fn request_view(&self, sessions: &[SessionView], now_ms: u64) -> Option<RequestView> {
+        let r = self.pending.current()?;
+        let timing = self.pending.current_timing(now_ms)?;
+        let source = sessions.iter().find(|s| s.id == r.session_id).map(|s| s.source.clone());
+        Some(RequestView {
+            id: r.id.clone(),
+            project: r.project.clone(),
+            source: source.unwrap_or_default(),
+            tool: r.tool.clone(),
+            kind: match r.kind {
+                Kind::Command => "command",
+                Kind::Edit => "edit",
+                Kind::Web => "web",
+                Kind::Mcp => "mcp",
+                Kind::HandBack => "other",
+            },
+            input: r.input.clone(),
+            description: r.description.clone(),
+            rule_text: r.rule.as_ref().map(permission::describe_rule),
+            rule_broad: r.rule.as_ref().is_some_and(permission::is_broad),
+            locked_ms: timing.locked_ms,
+            remaining_secs: timing.remaining_secs,
+        })
+    }
+
+    /// `now_ms` is the permission clock, for the request's lock and countdown.
+    pub fn snapshot(&self, now_ms: u64) -> Snapshot {
         let sessions: Vec<SessionView> = self
             .sessions
             .list()
@@ -281,6 +344,7 @@ impl Core {
                 .flatten()
                 .map(String::as_str)
                 .collect();
+        let request = self.request_view(&sessions, now_ms);
         Snapshot {
             state: self.sessions.character_state().to_string(),
             waiting: sessions.iter().filter(|s| s.state == "needs-you").count(),
@@ -288,6 +352,8 @@ impl Core {
             warning: (!warnings.is_empty()).then(|| warnings.join("; ")),
             quiet: self.quiet,
             hooks_on: self.hooks_on,
+            request,
+            request_count: self.pending.waiting_count(),
         }
     }
 }
@@ -317,7 +383,7 @@ mod tests {
     #[test]
     fn starts_asleep() {
         let core = Core::new(defaults(), None);
-        let s = core.snapshot();
+        let s = core.snapshot(0);
         assert_eq!(s.state, "asleep");
         assert_eq!(s.waiting, 0);
         assert!(s.sessions.is_empty());
@@ -338,7 +404,7 @@ mod tests {
         assert_eq!(core.jump_target("a"), Some(jump::Target::Terminal(7)));
         assert_eq!(core.jump_target("b"), Some(jump::Target::None));
         assert_eq!(core.jump_target("gone"), None);
-        let s = core.snapshot();
+        let s = core.snapshot(0);
         let jumpable = |id: &str| s.sessions.iter().find(|v| v.id == id).unwrap().jumpable;
         assert!(jumpable("a"));
         assert!(!jumpable("b"));
@@ -349,7 +415,7 @@ mod tests {
         let mut core = Core::new(defaults(), None);
         let alert = core.handle(ev("PreToolUse", "a", Some("Read")), 10);
         assert_eq!(alert, None);
-        let s = core.snapshot();
+        let s = core.snapshot(0);
         assert_eq!(s.state, "reading");
         assert_eq!(s.sessions.len(), 1);
         let v = &s.sessions[0];
@@ -364,13 +430,13 @@ mod tests {
         let alert = core.handle(ev("PermissionRequest", "a", Some("Bash")), 1).unwrap();
         assert_eq!(alert.tier, Tier::NeedsYou);
         assert_eq!(alert.speak.as_deref(), Some("proj needs you"));
-        assert_eq!(core.snapshot().state, "needs-you");
-        assert_eq!(core.snapshot().waiting, 1);
+        assert_eq!(core.snapshot(0).state, "needs-you");
+        assert_eq!(core.snapshot(0).waiting, 1);
         core.handle(ev("PermissionRequest", "b", None), 2);
-        assert_eq!(core.snapshot().waiting, 2);
+        assert_eq!(core.snapshot(0).waiting, 2);
         // A tool resuming clears one session's wait.
         core.handle(ev("PreToolUse", "a", Some("Bash")), 3);
-        assert_eq!(core.snapshot().waiting, 1);
+        assert_eq!(core.snapshot(0).waiting, 1);
     }
 
     #[test]
@@ -380,7 +446,7 @@ mod tests {
         let alert = core.handle(ev("Stop", "a", None), 90).unwrap();
         assert_eq!(alert.tier, Tier::GoodToKnow);
         assert_eq!(alert.sound.as_deref(), Some("bell"));
-        assert_eq!(core.snapshot().state, "done");
+        assert_eq!(core.snapshot(0).state, "done");
     }
 
     #[test]
@@ -394,23 +460,23 @@ mod tests {
         core.replace_rules(Ok(quiet));
         assert_eq!(core.handle(ev("PermissionRequest", "b", None), 2), None);
         // The state still changes; only the alert is silenced.
-        assert_eq!(core.snapshot().waiting, 2);
+        assert_eq!(core.snapshot(0).waiting, 2);
     }
 
     #[test]
     fn rejected_rules_keep_old_rules_and_set_warning() {
         let mut core = Core::new(defaults(), None);
         core.replace_rules(Err("line 3: bad".into()));
-        assert_eq!(core.snapshot().warning.as_deref(), Some("line 3: bad"));
+        assert_eq!(core.snapshot(0).warning.as_deref(), Some("line 3: bad"));
         assert!(core.handle(ev("PermissionRequest", "a", None), 1).is_some());
         core.replace_rules(Ok(defaults()));
-        assert_eq!(core.snapshot().warning, None);
+        assert_eq!(core.snapshot(0).warning, None);
     }
 
     #[test]
     fn startup_rules_warning_is_shown() {
         let core = Core::new(defaults(), Some("using default rules".into()));
-        assert_eq!(core.snapshot().warning.as_deref(), Some("using default rules"));
+        assert_eq!(core.snapshot(0).warning.as_deref(), Some("using default rules"));
     }
 
     #[test]
@@ -418,13 +484,13 @@ mod tests {
         let mut core = Core::new(defaults(), Some("rules bad".into()));
         core.set_connection_warning(Some("hooks cannot connect".into()));
         assert_eq!(
-            core.snapshot().warning.as_deref(),
+            core.snapshot(0).warning.as_deref(),
             Some("rules bad; hooks cannot connect")
         );
         core.replace_rules(Ok(defaults()));
-        assert_eq!(core.snapshot().warning.as_deref(), Some("hooks cannot connect"));
+        assert_eq!(core.snapshot(0).warning.as_deref(), Some("hooks cannot connect"));
         core.set_connection_warning(None);
-        assert_eq!(core.snapshot().warning, None);
+        assert_eq!(core.snapshot(0).warning, None);
     }
 
     #[test]
@@ -432,9 +498,9 @@ mod tests {
         let mut core = Core::new(defaults(), None);
         core.handle(ev("PreToolUse", "a", Some("Read")), 100);
         assert!(!core.tick(100 + 1799));
-        assert_eq!(core.snapshot().state, "reading");
+        assert_eq!(core.snapshot(0).state, "reading");
         assert!(core.tick(100 + 1800));
-        assert_eq!(core.snapshot().state, "asleep");
+        assert_eq!(core.snapshot(0).state, "asleep");
         assert!(!core.tick(100 + 1801));
     }
 
@@ -443,10 +509,10 @@ mod tests {
         let mut core = Core::new(defaults(), None);
         core.handle(ev("PermissionRequest", "a", None), 100);
         assert!(!core.tick(100 + 1800));
-        assert_eq!(core.snapshot().waiting, 1);
+        assert_eq!(core.snapshot(0).waiting, 1);
         assert!(!core.tick(100 + 86399));
         assert!(core.tick(100 + 86400));
-        assert_eq!(core.snapshot().waiting, 0);
+        assert_eq!(core.snapshot(0).waiting, 0);
     }
 
     #[test]
@@ -468,7 +534,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         let mut core = Core::new(defaults(), None);
         core.handle(ev("PermissionRequest", "a", None), 1);
         core.dismiss("a");
-        assert_eq!(core.snapshot().state, "asleep");
+        assert_eq!(core.snapshot(0).state, "asleep");
         core.dismiss("missing");
     }
 
@@ -477,7 +543,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         let mut core = Core::new(defaults(), None);
         core.handle(ev("PreToolUse", "a", Some("Read")), 1);
         core.handle(ev("SessionEnd", "a", None), 2);
-        assert_eq!(core.snapshot().state, "asleep");
+        assert_eq!(core.snapshot(0).state, "asleep");
     }
 
     #[test]
@@ -485,11 +551,11 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         let mut core = Core::new(defaults(), None);
         core.set_quiet(true);
         core.set_hooks_status(crate::tray::HookStatus { on: true, stale: false });
-        let s = core.snapshot();
+        let s = core.snapshot(0);
         assert!(s.quiet && s.hooks_on);
         core.set_quiet(false);
         core.set_hooks_status(crate::tray::HookStatus { on: false, stale: false });
-        let s = core.snapshot();
+        let s = core.snapshot(0);
         assert!(!s.quiet && !s.hooks_on);
     }
 
@@ -498,7 +564,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         let mut core = Core::new(defaults(), None);
         core.set_quiet(true);
         core.handle(ev("PermissionRequest", "a", None), 1);
-        let s = core.snapshot();
+        let s = core.snapshot(0);
         assert_eq!((s.state.as_str(), s.waiting), ("needs-you", 1));
         assert!(s.quiet);
     }
@@ -508,13 +574,13 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         use crate::tray::HookStatus;
         let mut core = Core::new(defaults(), None);
         core.set_hooks_status(HookStatus { on: false, stale: true });
-        let s = core.snapshot();
+        let s = core.snapshot(0);
         assert!(!s.hooks_on);
         let w = s.warning.unwrap();
         assert_eq!(w, HOOKS_STALE_WARNING);
         assert!(w.contains("need updating") && w.contains("tray"), "{w}");
         core.set_hooks_status(HookStatus { on: true, stale: false });
-        let s = core.snapshot();
+        let s = core.snapshot(0);
         assert!(s.hooks_on);
         assert_eq!(s.warning, None);
     }
@@ -590,7 +656,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
             assert!(!o.hold);
             assert_eq!(core.poll_permission(&o.id, 1).0, Polled::Gone);
             assert_eq!(o.alert.unwrap().speak.as_deref(), Some("proj needs you"));
-            assert_eq!(core.snapshot().waiting, 1);
+            assert_eq!(core.snapshot(0).waiting, 1);
         }
     }
 
@@ -641,9 +707,9 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         let first = core.open_permission(ask("a", "Bash"), 5000 / 1000, 5000).alert.unwrap();
         assert_eq!(first.tier, Tier::NeedsYou);
         assert_eq!(first.sound.as_deref(), Some("alert"));
-        assert_eq!(core.snapshot().sessions[0].terminal_pid, Some(7));
-        assert_eq!(core.snapshot().sessions[0].since, 5);
-        assert_eq!(core.snapshot().waiting, 1);
+        assert_eq!(core.snapshot(0).sessions[0].terminal_pid, Some(7));
+        assert_eq!(core.snapshot(0).sessions[0].since, 5);
+        assert_eq!(core.snapshot(0).waiting, 1);
 
         let mut note = ev("Notification", "a", None);
         note.notification_type = Some("permission_prompt".into());
@@ -651,7 +717,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         assert_eq!((later.sound, later.speak), (None, None));
         let again = core.open_permission(ask("a", "Bash"), 7000 / 1000, 7000).alert.unwrap();
         assert_eq!((again.sound, again.speak), (None, None));
-        assert_eq!(core.snapshot().waiting, 1);
+        assert_eq!(core.snapshot(0).waiting, 1);
     }
 
     #[test]
@@ -662,7 +728,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         core.open_permission(sub, 1000 / 1000, 1000);
         // A sibling working on something else must not clear the wait.
         core.handle(ev("PreToolUse", "a", Some("Read")), 2);
-        assert_eq!(core.snapshot().waiting, 1);
+        assert_eq!(core.snapshot(0).waiting, 1);
     }
 
     #[test]
@@ -721,9 +787,9 @@ when = { event = \"SessionEnd\", project = \"proj\" }
             let o = core.open_permission(ask("a", "Bash"), 0 / 1000, 0);
             core.answer_permission(&o.id, Choice::AllowOnce, 1000).unwrap();
             core.poll_permission(&o.id, 1100);
-            assert_eq!(core.snapshot().waiting, 1);
+            assert_eq!(core.snapshot(0).waiting, 1);
             core.handle(ev(next, "a", Some("Bash")), 2);
-            assert_eq!(core.snapshot().waiting, 0, "{next}");
+            assert_eq!(core.snapshot(0).waiting, 0, "{next}");
         }
     }
 
@@ -781,7 +847,7 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     fn the_input_never_reaches_a_snapshot() {
         let mut core = Core::new(defaults(), None);
         core.open_permission(with_rule("a"), 0 / 1000, 0);
-        let text = format!("{:?}", core.snapshot());
+        let text = format!("{:?}", core.snapshot(0));
         assert!(!text.contains("node") && !text.contains("Show version"), "{text}");
     }
 
@@ -789,8 +855,81 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     fn hotkey_warning_is_joined_with_the_others() {
         let mut core = Core::new(defaults(), Some("rules bad".into()));
         core.set_hotkey_warning(Some("no hotkey".into()));
-        assert_eq!(core.snapshot().warning.as_deref(), Some("rules bad; no hotkey"));
+        assert_eq!(core.snapshot(0).warning.as_deref(), Some("rules bad; no hotkey"));
         core.set_hotkey_warning(None);
-        assert_eq!(core.snapshot().warning.as_deref(), Some("rules bad"));
+        assert_eq!(core.snapshot(0).warning.as_deref(), Some("rules bad"));
+    }
+
+    #[test]
+    fn snapshot_carries_the_current_request_for_the_panel() {
+        let mut core = Core::new(defaults(), None);
+        assert!(core.snapshot(0).request.is_none());
+        assert_eq!(core.snapshot(0).request_count, 0);
+        let o = core.open_permission(with_rule("a"), 0, 5_000);
+        core.open_permission(ask("b", "Bash"), 0, 5_000);
+        let s = core.snapshot(5_400);
+        let r = s.request.unwrap();
+        assert_eq!(s.request_count, 2);
+        assert_eq!((r.id.as_str(), r.project.as_str(), r.source.as_str()), (o.id.as_str(), "proj", "cli"));
+        assert_eq!((r.tool.as_str(), r.kind), ("Bash", "command"));
+        assert_eq!(r.input["command"], "node -v");
+        assert_eq!(r.description.as_deref(), Some("Show version"));
+        assert_eq!(r.rule_text.as_deref(), Some("Bash: node * (allows any command starting with node)"));
+        assert!(r.rule_broad);
+        assert_eq!(r.locked_ms, 600);
+        assert_eq!(r.remaining_secs, 120);
+        // Seconds are rounded up, so a request never reads 0 while it still has time.
+        assert_eq!(core.snapshot(5_000 + 119_500).request.unwrap().remaining_secs, 1);
+        assert_eq!(core.snapshot(5_000 + 1_000).request.unwrap().locked_ms, 0);
+    }
+
+    #[test]
+    fn a_request_without_a_rule_has_no_rule_text() {
+        let mut core = Core::new(defaults(), None);
+        core.open_permission(ask("a", "Bash"), 0, 0);
+        let r = core.snapshot(0).request.unwrap();
+        assert_eq!((r.rule_text, r.rule_broad), (None, false));
+    }
+
+    #[test]
+    fn the_next_request_shows_once_the_current_is_answered() {
+        let mut core = Core::new(defaults(), None);
+        let a = core.open_permission(ask("a", "Bash"), 0, 0);
+        let b = core.open_permission(ask("b", "Edit"), 0, 0);
+        core.answer_permission(&a.id, Choice::Deny, 1000).unwrap();
+        let s = core.snapshot(1000);
+        assert_eq!(s.request.as_ref().unwrap().id, b.id);
+        assert_eq!(s.request_count, 1);
+        // Its own lock starts when it becomes current.
+        assert_eq!(s.request.unwrap().locked_ms, 1000);
+    }
+
+    #[test]
+    fn answers_for_unknown_or_locked_requests_are_errors() {
+        let mut core = Core::new(defaults(), None);
+        let o = core.open_permission(ask("a", "Bash"), 0, 0);
+        assert!(core.answer_permission("nope", Choice::Deny, 5000).is_err());
+        assert!(core.answer_permission(&o.id, Choice::Deny, 999).is_err());
+        assert!(core.snapshot(999).request.is_some());
+    }
+
+    #[test]
+    fn hiding_releases_requests_and_the_view_ends() {
+        let mut core = Core::new(defaults(), None);
+        core.open_permission(ask("a", "Bash"), 0, 0);
+        core.set_visible(false);
+        assert!(core.snapshot(10).request.is_none());
+        assert_eq!(core.snapshot(10).request_count, 0);
+    }
+
+    #[test]
+    fn after_the_hold_runs_out_the_view_ends_but_the_session_keeps_waiting() {
+        let mut core = Core::new(defaults(), None);
+        let o = core.open_permission(ask("a", "Bash"), 0, 0);
+        keep_polling(&mut core, &o.id, 0, 120_000);
+        assert!(core.tick_permissions(120_000));
+        let s = core.snapshot(120_000);
+        assert!(s.request.is_none());
+        assert_eq!((s.state.as_str(), s.waiting), ("needs-you", 1));
     }
 }

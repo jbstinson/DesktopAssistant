@@ -145,10 +145,37 @@ fn jump_to(id: String, core: State<'_, SharedCore>) -> Result<(), String> {
     Ok(())
 }
 
+/// The only way to a decision, reached by a click on the panel. Anything but the five
+/// answer names is refused. Publishes either way so the panel shows what is true now.
+#[tauri::command]
+fn answer_permission(
+    id: String,
+    choice: String,
+    core: State<'_, SharedCore>,
+    publish: State<'_, Publish>,
+) -> Result<(), String> {
+    let result = match permission::Choice::parse(&choice) {
+        Some(c) => lock(&core).answer_permission(&id, c, now_ms()),
+        None => Err("unknown answer".to_string()),
+    };
+    publish();
+    result
+}
+
+/// Where the cursor is, relative to the window's top-left, in CSS pixels. The panel checks
+/// this when a request appears, since a still cursor sends it no mouse events.
+#[tauri::command]
+fn cursor_in_window(window: WebviewWindow) -> Result<(f64, f64), String> {
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let cursor = window.cursor_position().map_err(|e| e.to_string())?;
+    let origin = window.outer_position().map_err(|e| e.to_string())?;
+    Ok(((cursor.x - origin.x as f64) / scale, (cursor.y - origin.y as f64) / scale))
+}
+
 /// The UI asks once on load so it cannot miss events emitted before the page was ready.
 #[tauri::command]
 fn get_snapshot(core: State<'_, SharedCore>) -> app::Snapshot {
-    lock(&core).snapshot()
+    lock(&core).snapshot(now_ms())
 }
 
 /// Work areas of all monitors in physical pixels, the primary first.
@@ -203,7 +230,7 @@ fn main() {
         return;
     };
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![set_panel, dismiss_session, jump_to, get_snapshot])
+        .invoke_handler(tauri::generate_handler![set_panel, dismiss_session, jump_to, get_snapshot, answer_permission, cursor_in_window])
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -247,7 +274,7 @@ fn main() {
                 let emit_order = Arc::new(Mutex::new(()));
                 Arc::new(move || {
                     let _order = lock(&emit_order);
-                    let snap = lock(&core).snapshot();
+                    let snap = lock(&core).snapshot(now_ms());
                     let _ = handle.emit("snapshot", snap);
                 })
             };
