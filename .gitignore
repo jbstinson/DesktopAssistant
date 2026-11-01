@@ -4,3 +4,4 @@ spikes/hooks/events.jsonl
 spikes/window/spike.log
 .superpowers/
 .claude/settings.local.json
+src-tauri/gen/

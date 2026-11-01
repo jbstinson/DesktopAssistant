@@ -1,0 +1,79 @@
+/* The panel fills the part of the window the robot does not use. main.js sets its top. */
+#panel {
+  display: none;
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 332px;
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid #334155;
+  color: #e2e8f0;
+  font: 13px/1.3 "Segoe UI", sans-serif;
+  user-select: none;
+}
+body[data-panel="open"] #panel { display: flex; }
+
+#panel .warning {
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #78350f;
+  color: #fde68a;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+#panel .warning[hidden] { display: none; }
+
+#panel .sessions { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+#panel .empty { padding: 20px 0; text-align: center; color: #94a3b8; }
+
+#panel .session {
+  display: flex;
+  align-items: stretch;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  background: #1e293b;
+  border-left: 4px solid #475569;
+}
+#panel .session[data-state="needs-you"] { border-left-color: #f59e0b; }
+#panel .session[data-state="error"] { border-left-color: #ef4444; }
+#panel .session[data-state="done"] { border-left-color: #2dd4bf; }
+
+#panel button { font: inherit; color: inherit; background: none; border: 0; cursor: default; }
+#panel .dismiss, #panel .session-main.jumpable { cursor: pointer; }
+#panel .session-main {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px;
+  text-align: left;
+}
+#panel .session-main.jumpable:hover, #panel .dismiss:hover { background: #334155; }
+#panel .project { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#panel .meta { display: block; color: #94a3b8; font-size: 12px; }
+#panel .dismiss { width: 32px; font-size: 18px; color: #94a3b8; border-radius: 0 8px 8px 0; }
+
+/* A small mark on the robot when the rules file or the listener has a problem. */
+#warn {
+  display: none;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f59e0b;
+  color: #1f2937;
+  border: 2px solid #fff;
+  box-sizing: border-box;
+  font: 700 14px/18px "Segoe UI", sans-serif;
+  text-align: center;
+}
+body[data-warning="true"] #warn { display: block; }
+
+/* Panel open: the robot is placed by main.js instead of centred. */
+#robot { position: relative; }
+body[data-panel="open"] #robot { position: absolute; }

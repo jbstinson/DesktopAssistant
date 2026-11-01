@@ -1,0 +1,23 @@
+# Alert rules. The first matching rule wins; no match is silent.
+# Conditions (all present must match): event, project, tool, source,
+# notification_type (each a string or a list), min_turn_seconds.
+# Tiers: needs_you, good_to_know, silent. Sounds: "alert" or "bell".
+# {project} in `speak` is replaced with the project name.
+# Rules only choose how you are told; they can never approve or deny anything.
+
+# Idle reminders fire after a finished turn, which already alerted.
+[[rule]]
+when = { event = "Notification", notification_type = "idle_prompt" }
+then = { tier = "silent" }
+
+[[rule]]
+when = { event = "StopFailure" }
+then = { tier = "needs_you", sound = "alert", speak = "{project} failed" }
+
+[[rule]]
+when = { event = ["PermissionRequest", "Notification"] }
+then = { tier = "needs_you", sound = "alert", speak = "{project} needs you" }
+
+[[rule]]
+when = { event = "Stop", min_turn_seconds = 60 }
+then = { tier = "good_to_know", sound = "bell", speak = "{project} finished" }
