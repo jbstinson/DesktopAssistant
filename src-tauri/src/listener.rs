@@ -7,6 +7,8 @@ use tiny_http::{Method, Request, Response, Server};
 
 const MAX_BODY: u64 = 1024 * 1024;
 
+// Task 10 reads these to write the hook configuration.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Endpoint {
     pub port: u16,

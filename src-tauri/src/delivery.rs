@@ -59,6 +59,8 @@ impl Queue {
     }
 
     /// Quiet drops everything still queued; an alert already playing finishes.
+    // Task 9 wires do-not-disturb from the tray.
+    #[allow(dead_code)]
     pub fn set_quiet(&self, quiet: bool) {
         let mut st = lock(&self.shared);
         st.quiet = quiet;

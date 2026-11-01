@@ -140,6 +140,8 @@ impl Sessions {
         Applied { turn_seconds, newly_blocked, session_known }
     }
 
+    // Task 9 calls this from the panel.
+    #[allow(dead_code)]
     pub fn dismiss(&mut self, id: &str) {
         self.map.remove(id);
     }
