@@ -52,9 +52,9 @@ fn new_token() -> std::io::Result<String> {
 
 /// Compares without returning at the first differing byte.
 fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    let mut diff = (a.len() ^ b.len()) as u8;
+    let mut diff = usize::from(a.len() != b.len());
     for i in 0..a.len().max(b.len()) {
-        diff |= a.get(i).copied().unwrap_or(0) ^ b.get(i).copied().unwrap_or(0);
+        diff |= usize::from(a.get(i).copied().unwrap_or(0) ^ b.get(i).copied().unwrap_or(0));
     }
     diff == 0
 }
@@ -214,5 +214,8 @@ mod tests {
         assert!(ct_eq(b"abc", b"abc"));
         assert!(!ct_eq(b"abc", b"abd"));
         assert!(!ct_eq(b"abc", b"abcd"));
+        // Lengths differing by exactly 256 with a zero-padded tail must still differ.
+        let long = vec![0u8; 256 + 3];
+        assert!(!ct_eq(&long[..3], &long));
     }
 }

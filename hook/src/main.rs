@@ -6,6 +6,8 @@ use std::io::Read;
 use std::time::Duration;
 
 fn main() {
+    // Release builds use panic = "abort"; make any panic a clean exit 0.
+    std::panic::set_hook(Box::new(|_| std::process::exit(0)));
     // The whole job runs on a worker so a stuck stdin or network call cannot
     // hold the session past the 2 second budget.
     let (tx, rx) = std::sync::mpsc::channel();
@@ -41,8 +43,14 @@ fn run() {
         event["terminal_pid"] = json!(terminal::terminal_pid());
     }
 
-    let _ = ureq::post(&format!("http://127.0.0.1:{port}/event"))
+    // The URL is built only from the port, so the target is always loopback;
+    // redirects are disabled so a stale port cannot send us elsewhere.
+    let agent = ureq::AgentBuilder::new()
+        .redirects(0)
         .timeout(Duration::from_secs(1))
+        .build();
+    let _ = agent
+        .post(&format!("http://127.0.0.1:{port}/event"))
         .set("Authorization", &format!("Bearer {token}"))
         .send_string(&event.to_string());
 }

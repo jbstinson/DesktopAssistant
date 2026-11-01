@@ -121,3 +121,23 @@ fn forwards_mapped_fields_without_tool_input() {
     assert!(v.get("terminal_pid").is_none());
     assert!(!body.contains("secret"));
 }
+
+#[test]
+fn server_that_never_replies_still_exits_zero_within_two_seconds() {
+    let d = temp_appdata("hang");
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    std::fs::write(
+        d.join("DesktopAssistant/endpoint.json"),
+        format!(r#"{{"port":{port},"token":"t"}}"#),
+    )
+    .unwrap();
+    // Accept in the background and hold the connection open without replying.
+    let held = std::thread::spawn(move || {
+        let conn = l.accept().unwrap();
+        std::thread::sleep(Duration::from_secs(4));
+        drop(conn);
+    });
+    run(&d, EV, &[]);
+    drop(held);
+}
