@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+      body { display: grid; place-items: center; }
+      #robot { width: 140px; height: 140px; border-radius: 50%; background: #3b82f6; }
+    </style>
+  </head>
+  <body>
+    <div id="robot"></div>
+    <script>
+      const { invoke } = window.__TAURI__.core;
+      document.getElementById("robot").addEventListener("mousedown", () => invoke("clicked"));
+    </script>
+  </body>
+</html>
