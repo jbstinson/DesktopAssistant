@@ -29,7 +29,7 @@ pub fn start_in(
         .ok_or_else(|| std::io::Error::other("no ip address"))?;
     let token = new_token()?;
 
-    let json = serde_json::json!({ "port": port, "token": token }).to_string();
+    let json = serde_json::json!({ "port": port, "token": token, "pid": std::process::id() }).to_string();
     let tmp = dir.join("endpoint.json.tmp");
     std::fs::write(&tmp, json)?;
     std::fs::rename(&tmp, dir.join("endpoint.json"))?;
@@ -214,6 +214,7 @@ mod tests {
                 .unwrap();
         assert_eq!(v["port"], ep.port);
         assert_eq!(v["token"], ep.token);
+        assert_eq!(v["pid"], std::process::id());
         assert_eq!(ep.token.len(), 64);
         assert!(!dir.join("endpoint.json.tmp").exists());
     }

@@ -173,3 +173,105 @@ fn dead_port_exits_zero_quickly() {
     assert!(out.is_empty());
     assert!(start.elapsed() < Duration::from_millis(500), "too slow: {:?}", start.elapsed());
 }
+
+/// A pid that belonged to a process which has exited.
+fn dead_pid() -> u32 {
+    let mut child = Command::new("cmd").args(["/c", "exit"]).spawn().unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    pid
+}
+
+#[test]
+fn dead_app_pid_skips_the_port_probe_and_returns_fast() {
+    let d = temp_appdata("deadpid");
+    // Something is listening, so a probe would connect; the dead pid must stop it trying.
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    l.set_nonblocking(true).unwrap();
+    let port = l.local_addr().unwrap().port();
+    std::fs::write(
+        d.join("DesktopAssistant/endpoint.json"),
+        format!(r#"{{"port":{port},"token":"t","pid":{}}}"#, dead_pid()),
+    )
+    .unwrap();
+    let start = Instant::now();
+    run(&d, EV, &[]);
+    assert!(start.elapsed() < Duration::from_secs(1), "slow: {:?}", start.elapsed());
+    assert!(l.accept().is_err(), "the hook connected although the app pid is gone");
+}
+
+#[test]
+fn live_app_pid_still_delivers() {
+    let d = temp_appdata("livepid");
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    l.set_nonblocking(true).unwrap();
+    let port = l.local_addr().unwrap().port();
+    // The test process itself stands in for the running app.
+    std::fs::write(
+        d.join("DesktopAssistant/endpoint.json"),
+        format!(r#"{{"port":{port},"token":"t","pid":{}}}"#, std::process::id()),
+    )
+    .unwrap();
+    run(&d, EV, &[]);
+    assert!(l.accept().is_ok(), "the hook never connected to a live app");
+}
+
+#[test]
+fn forwards_agent_id_only_when_present() {
+    for (extra, want) in [(r#","agent_id":"ag-7""#, Some("ag-7")), ("", None)] {
+        let d = temp_appdata("agent");
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        std::fs::write(
+            d.join("DesktopAssistant/endpoint.json"),
+            format!(r#"{{"port":{port},"token":"tok"}}"#),
+        )
+        .unwrap();
+        let ev = format!(
+            r#"{{"hook_event_name":"PreToolUse","session_id":"s1","cwd":"C:/x","tool_name":"Read"{extra}}}"#
+        );
+        let server = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            l.set_nonblocking(true).unwrap();
+            loop {
+                let Ok((mut s, _)) = l.accept() else {
+                    assert!(Instant::now() < deadline, "hook never connected");
+                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
+                };
+                s.set_nonblocking(false).unwrap();
+                s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 2048];
+                // Read until the JSON body is complete (ends with a closing brace).
+                while let Ok(n) = s.read(&mut chunk) {
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                    if buf.ends_with(b"}") {
+                        break;
+                    }
+                }
+                if buf.is_empty() {
+                    continue; // the bare probe connection
+                }
+                let _ = s.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n");
+                return String::from_utf8_lossy(&buf).to_string();
+            }
+        });
+        run(&d, &ev, &[]);
+        let req = server.join().unwrap();
+        let body = &req[req.find("\r\n\r\n").unwrap() + 4..];
+        let v: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(v.get("agent_id").and_then(|a| a.as_str()), want);
+        let mut keys: Vec<_> = v.as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        let mut expect = vec!["cwd", "name", "notification_type", "session_id", "source", "tool"];
+        if want.is_some() {
+            expect.push("agent_id");
+        }
+        expect.sort();
+        assert_eq!(keys, expect);
+    }
+}
