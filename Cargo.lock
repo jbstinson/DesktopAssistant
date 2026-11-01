@@ -564,6 +564,8 @@ dependencies = [
 name = "desktop-assistant"
 version = "0.0.0"
 dependencies = [
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "windows-sys 0.59.0",

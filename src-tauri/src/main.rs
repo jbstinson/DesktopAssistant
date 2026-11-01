@@ -1,5 +1,10 @@
 #![windows_subsystem = "windows"]
 
+// Dead code is allowed on these until Task 8 wires them into the app.
+#[allow(dead_code)]
+mod events;
+#[allow(dead_code)]
+mod sessions;
 mod overlay;
 
 use std::sync::{Arc, Mutex};
