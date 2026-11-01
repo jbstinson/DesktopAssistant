@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod app;
+mod approvals;
 mod delivery;
 mod events;
 mod jump;
@@ -264,6 +265,14 @@ fn main() {
                 });
             let hooks_on = status.on;
             lock(&core).set_hooks_status(status);
+            // The hold is read once, here; editing approvals.json takes effect at next launch.
+            let approvals_path = paths::data_dir().join("approvals.json");
+            let approvals = approvals::load(&approvals_path);
+            {
+                let mut c = lock(&core);
+                c.set_approve_in_window(approvals.enabled);
+                c.set_hold(approvals.hold_seconds);
+            }
             app.manage(core.clone());
 
             // The emit mutex is held across snapshot and emit so an older snapshot can never
@@ -340,7 +349,8 @@ fn main() {
             app.manage(queue.clone());
 
             let voice_menu = tray::VoiceMenu { names: voices, default: default_voice, choice, path: voice_path };
-            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on, voice_menu)?;
+            let approve_menu = tray::ApproveMenu { approvals, path: approvals_path };
+            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on, voice_menu, approve_menu)?;
 
             // Ctrl+Alt+D shows or hides the character. If another app owns the key, say so
             // in the warning and carry on.

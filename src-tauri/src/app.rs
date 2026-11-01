@@ -76,7 +76,7 @@ impl std::fmt::Debug for Snapshot {
 
 /// Hold time in seconds.
 const HOLD_DEFAULT_SECS: u64 = 120;
-const HOLD_MIN_SECS: u64 = 10;
+pub const HOLD_MIN_SECS: u64 = 10;
 /// Must stay below `PERMISSION_LIMIT` in hook/src/main.rs (128), which must stay below the
 /// PermissionRequest timeout in `installer::timeout_for` (130). An installer test checks this.
 pub const HOLD_MAX_SECS: u64 = 125;
@@ -222,8 +222,6 @@ impl Core {
     }
 
     /// Turning the switch off hands every held request back.
-    // The tray switch calling this arrives in Task 6.
-    #[allow(dead_code)]
     pub fn set_approve_in_window(&mut self, on: bool) {
         self.approve_in_window = on;
         if !on {
@@ -231,9 +229,11 @@ impl Core {
         }
     }
 
+    pub fn approve_in_window(&self) -> bool {
+        self.approve_in_window
+    }
+
     /// Applies to requests opened afterwards.
-    // The saved setting calling this arrives in Task 6.
-    #[allow(dead_code)]
     pub fn set_hold(&mut self, secs: u64) {
         self.pending.set_hold(secs.clamp(HOLD_MIN_SECS, HOLD_MAX_SECS));
     }

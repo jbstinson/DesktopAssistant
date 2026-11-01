@@ -2,7 +2,7 @@
 
 A small always-on-top robot for Windows 11 that watches your Claude Code sessions and tells you when one needs you.
 
-Stage 1 only watches. It never approves, denies or types anything in a session. It uses Claude Code hooks, so it sees sessions from the Claude desktop app, the terminal and `claude -p`. Nothing leaves your machine.
+It never types anything in a session. A permission request is answered only by a click on a panel button (see Approvals); otherwise it only watches. It uses Claude Code hooks, so it sees sessions from the Claude desktop app, the terminal and `claude -p`. Nothing leaves your machine.
 
 ## What it does
 
@@ -35,6 +35,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 
 - **Hide / Show**: hides or shows the robot.
 - **Do not disturb**: mutes sound and speech. The robot still animates.
+- **Approve in window**: ticked by default. When on, permission requests can be answered in the panel (see Approvals). Turning it off hands every held request back to Claude Code at once. Your choice is remembered.
 - **Voice**: lists the Windows voices installed on this PC. Picking one speaks a short sample and remembers your choice in `%APPDATA%\DesktopAssistantoice.txt`. The sample is muted during Do not disturb. If a saved voice is uninstalled, the Windows default is used.
 - **Connect to Claude Code**: ticked when the hooks are installed. Click again to remove only our entries.
 - **Open rules file**: opens `rules.toml` in Notepad.
@@ -46,7 +47,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 
 ## Where files live
 
-Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position) and `endpoint.json` (the local port and token that `da-hook` uses).
+Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time) and `endpoint.json` (the local port and token that `da-hook` uses).
 
 ## Rules file
 
@@ -99,6 +100,42 @@ then = { tier = "good_to_know", sound = "bell" }
 when = { event = "Stop", source = "cli", min_turn_seconds = 180 }
 then = { tier = "good_to_know", sound = "bell", speak = "{project} is done" }
 ```
+
+## Approvals
+
+The panel can answer some Claude Code permission requests for you. Rules, voice and speech never approve anything: only a click on a panel button does.
+
+**What the window handles.** When a session asks permission to use a tool, the request is held and shown in the panel with the tool and what it wants to do. You answer there instead of in the terminal.
+
+**What goes straight back to Claude Code.** A request is not held when the robot is hidden, Do not disturb is on, or **Approve in window** is off. It goes back at once and Claude Code asks you its usual way. Hiding the robot, turning on Do not disturb or turning the switch off also hands back everything already held.
+
+**The 2 minute hold.** A request is held for 120 seconds. If you have not answered, it goes back to Claude Code and you are asked there. To change the time, edit `%APPDATA%\DesktopAssistantpprovals.json`:
+
+```json
+{"enabled": true, "hold_seconds": 120}
+```
+
+`hold_seconds` can be 10 to 125; other numbers are moved to the nearest limit. A missing or broken file, or a bad field, uses the default for that field (on, 120). The file is read when the app starts, so restart the app after editing the time.
+
+**The buttons.**
+
+- **Deny**: refuses this one request.
+- **Allow once**: allows this one request.
+- **Allow this session**: allows requests like this one until the session ends. Shown only when there is a rule to save.
+- **Always allow**: saves a rule so requests like this are allowed from now on. Shown only when there is a rule to save.
+- **Answer in Claude Code**: hands the request back so Claude Code asks you its usual way.
+
+The buttons are locked for 1 second after a request appears, so a click meant for something else cannot answer it. If the mouse was already over the panel, it must leave and come back first.
+
+**Always allow.** It takes two clicks: the first shows the exact rule, and **Confirm** saves it. The rule applies to the current project only and is written to that project's `.claude/settings.local.json`. To remove one, delete its line from that file, or use `/permissions` in Claude Code.
+
+**Update the hooks once.** After updating, click **Connect to Claude Code** in the tray again. This is needed once so the hook entries pick up the new permission settings. Restart sessions that were already open.
+
+**Limits.**
+
+- Commands that Claude Code's auto mode approves never reach the window.
+- While a request is held, the terminal shows nothing. It looks stuck until you answer or the hold ends.
+- After the hold ends or a request is handed back, Windows Terminal or the Claude desktop app may show the normal prompt.
 
 ## Known limits
 

@@ -3,6 +3,7 @@
 //! The settings path is always a parameter of the logic functions so tests use temp files;
 //! only `claude_settings_path` knows where the real file lives.
 
+use crate::approvals::{self, Approvals};
 use crate::delivery::Queue;
 use crate::rules::{Alert, Tier};
 use crate::voice::{self, Choice};
@@ -96,6 +97,7 @@ type Publish = Arc<dyn Fn() + Send + Sync>;
 pub struct TrayItems {
     toggle: MenuItem<Wry>,
     quiet: CheckMenuItem<Wry>,
+    approve: CheckMenuItem<Wry>,
     hooks: CheckMenuItem<Wry>,
     voices: Vec<(String, CheckMenuItem<Wry>)>,
 }
@@ -105,6 +107,12 @@ pub struct VoiceMenu {
     pub names: Vec<String>,
     pub default: Option<String>,
     pub choice: Choice,
+    pub path: PathBuf,
+}
+
+/// Where the Approve in window switch is kept, and the hold that is saved with it.
+pub struct ApproveMenu {
+    pub approvals: Approvals,
     pub path: PathBuf,
 }
 
@@ -181,6 +189,22 @@ fn toggle_quiet(items: &TrayItems, core: &Core, publish: &Publish, queue: &Queue
     publish();
 }
 
+/// Flips Approve in window. Turning it off releases every held request at once. The choice is
+/// saved with the hold the app started with.
+fn toggle_approve(items: &TrayItems, core: &Core, publish: &Publish, menu: &ApproveMenu) {
+    let on = {
+        let mut core = lock(core);
+        let on = !core.approve_in_window();
+        core.set_approve_in_window(on);
+        on
+    };
+    let _ = items.approve.set_checked(on);
+    if let Err(e) = approvals::save(&menu.path, Approvals { enabled: on, ..menu.approvals }) {
+        eprintln!("approvals: cannot save choice: {e}");
+    }
+    publish();
+}
+
 /// Passes on the status already held. The status is bound first so the core lock is free when
 /// `finish` runs: `finish` locks it again, and a guard held across that call would never wake.
 fn with_current_status(core: &Core, finish: impl FnOnce(HookStatus)) {
@@ -242,9 +266,12 @@ pub fn install(
     queue: Arc<Queue>,
     hooks_on: bool,
     voice_menu: VoiceMenu,
+    approve_menu: ApproveMenu,
 ) -> tauri::Result<()> {
     let toggle = MenuItem::with_id(app, "toggle", "Hide", true, None::<&str>)?;
     let quiet = CheckMenuItem::with_id(app, "quiet", "Do not disturb", true, false, None::<&str>)?;
+    let approve =
+        CheckMenuItem::with_id(app, "approve", "Approve in window", true, approve_menu.approvals.enabled, None::<&str>)?;
     let hooks = CheckMenuItem::with_id(app, "hooks", "Connect to Claude Code", true, hooks_on, None::<&str>)?;
     let voice_submenu = Submenu::new(app, "Voice", true)?;
     let voices = {
@@ -265,8 +292,8 @@ pub fn install(
     let rules = MenuItem::with_id(app, "rules", "Open rules file", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&toggle, &quiet, &voice_submenu, &hooks, &rules, &sep, &quit_item])?;
-    app.manage(TrayItems { toggle, quiet, hooks, voices });
+    let menu = Menu::with_items(app, &[&toggle, &quiet, &approve, &voice_submenu, &hooks, &rules, &sep, &quit_item])?;
+    app.manage(TrayItems { toggle, quiet, approve, hooks, voices });
 
     let mut builder = TrayIconBuilder::new().tooltip("DesktopAssistant").menu(&menu);
     if let Some(icon) = app.default_window_icon() {
@@ -276,6 +303,7 @@ pub fn install(
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "toggle" => toggle_visible(app),
             "quiet" => toggle_quiet(&app.state::<TrayItems>(), &core, &publish, &queue),
+            "approve" => toggle_approve(&app.state::<TrayItems>(), &core, &publish, &approve_menu),
             "hooks" => {
                 // One dialog at a time, even if the item is clicked again meanwhile.
                 if HOOKS_BUSY.swap(true, Ordering::SeqCst) {
