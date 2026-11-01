@@ -68,14 +68,10 @@ impl Core {
 
     /// Apply an event. Returns the alert to deliver, or None when the rules say silent.
     pub fn handle(&mut self, e: HookEvent, now: u64) -> Option<Alert> {
+        // SessionEnd removes the session, so its project is read before the event is applied.
+        let before = self.sessions.project_of(&e.session_id);
         let applied = self.sessions.apply(&e, now);
-        let project = self
-            .sessions
-            .list()
-            .into_iter()
-            .find(|v| v.id == e.session_id)
-            .map(|v| v.project)
-            .unwrap_or_default();
+        let project = self.sessions.project_of(&e.session_id).or(before).unwrap_or_default();
         let alert = self.rules.evaluate(&e, &applied, &project);
         (alert.tier != Tier::Silent).then_some(alert)
     }
@@ -181,6 +177,7 @@ mod tests {
             notification_type: None,
             source: "terminal".into(),
             terminal_pid: Some(7),
+            agent_id: None,
         }
     }
 
@@ -239,7 +236,7 @@ mod tests {
         core.handle(ev("PermissionRequest", "b", None), 2);
         assert_eq!(core.snapshot().waiting, 2);
         // A tool resuming clears one session's wait.
-        core.handle(ev("PostToolUse", "a", Some("Bash")), 3);
+        core.handle(ev("PreToolUse", "a", Some("Bash")), 3);
         assert_eq!(core.snapshot().waiting, 1);
     }
 
@@ -317,6 +314,20 @@ mod tests {
         assert!(!core.tick(100 + 86399));
         assert!(core.tick(100 + 86400));
         assert_eq!(core.snapshot().waiting, 0);
+    }
+
+    #[test]
+    fn session_end_rules_see_the_project_name() {
+        let rules = RuleSet::parse(
+            "[[rule]]
+when = { event = \"SessionEnd\", project = \"proj\" }
+             then = { tier = \"good_to_know\", sound = \"bell\", speak = \"{project} closed\" }",
+        )
+        .unwrap();
+        let mut core = Core::new(rules, None);
+        core.handle(ev("PreToolUse", "a", Some("Read")), 1);
+        let alert = core.handle(ev("SessionEnd", "a", None), 2).unwrap();
+        assert_eq!(alert.speak.as_deref(), Some("proj closed"));
     }
 
     #[test]

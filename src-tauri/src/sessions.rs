@@ -6,7 +6,8 @@ use std::collections::HashMap;
 
 /// A session silent for this many seconds is dropped by `expire`.
 const EXPIRE_SECONDS: u64 = 1800;
-/// Sessions waiting on the user (NeedsYou or Error) stay until handled, so they get a day.
+/// Sessions waiting on the user (NeedsYou or Error), or in the middle of a turn (a tool can run
+/// for hours with no hook in between), stay until handled, so they get a day.
 const EXPIRE_BLOCKED_SECONDS: u64 = 86400;
 
 const READING_TOOLS: &[&str] = &["Read", "Grep", "Glob", "WebFetch", "WebSearch"];
@@ -48,6 +49,8 @@ struct Session {
     last_seen: u64,
     turn_start: Option<u64>,
     terminal_pid: Option<u32>,
+    /// Which agent the current NeedsYou is waiting on: None is the main session.
+    blocked_agent: Option<String>,
 }
 
 #[derive(Default)]
@@ -62,6 +65,15 @@ fn project_name(cwd: &str) -> String {
         .last()
         .unwrap_or("")
         .to_string()
+}
+
+/// Notification types that mean Claude is waiting for the user. An absent type counts.
+fn is_blocking_notification(kind: Option<&str>) -> bool {
+    matches!(kind, None | Some("permission_prompt") | Some("elicitation_dialog"))
+}
+
+fn waiting_on_another(s: &Session, e: &HookEvent) -> bool {
+    s.activity == Activity::NeedsYou && s.blocked_agent != e.agent_id
 }
 
 fn tool_activity(tool: Option<&str>) -> Activity {
@@ -92,10 +104,13 @@ impl Sessions {
             last_seen: now,
             turn_start: None,
             terminal_pid: None,
+            blocked_agent: None,
         });
 
         s.last_seen = now;
-        s.project = project_name(&e.cwd);
+        if s.project.is_empty() {
+            s.project = project_name(&e.cwd);
+        }
         if !e.source.is_empty() {
             s.source = e.source.clone();
         }
@@ -110,13 +125,21 @@ impl Sessions {
                 s.turn_start = Some(now);
                 Some(Activity::Thinking)
             }
+            // Only the agent we are waiting on can say the wait is over; a sibling subagent
+            // working on may not clear it.
+            "PreToolUse" if waiting_on_another(s, e) => None,
+            "PostToolUseFailure" if s.activity == Activity::NeedsYou => None,
             "PreToolUse" => Some(tool_activity(e.tool.as_deref())),
-            // Work resumed after a block or failure; a tool finishing means it is running again.
-            "PostToolUse" | "PostToolUseFailure" => Some(Activity::Thinking),
-            // Fires after a finished turn; the Stop already alerted, so it changes nothing.
-            "Notification" if e.notification_type.as_deref() == Some("idle_prompt") => None,
+            // A failed tool call means the session is running again.
+            "PostToolUseFailure" => Some(Activity::Thinking),
+            // Only notifications that ask the user for something block. Others (idle_prompt,
+            // auth_success, types not known yet) change nothing.
+            "Notification" if !is_blocking_notification(e.notification_type.as_deref()) => None,
             "PermissionRequest" | "Notification" => {
                 newly_blocked = s.activity != Activity::NeedsYou;
+                if newly_blocked {
+                    s.blocked_agent = e.agent_id.clone();
+                }
                 Some(Activity::NeedsYou)
             }
             "StopFailure" => {
@@ -142,6 +165,10 @@ impl Sessions {
         Applied { turn_seconds, newly_blocked, session_known }
     }
 
+    pub fn project_of(&self, id: &str) -> Option<String> {
+        self.map.get(id).map(|s| s.project.clone())
+    }
+
     pub fn dismiss(&mut self, id: &str) {
         self.map.remove(id);
     }
@@ -150,6 +177,7 @@ impl Sessions {
         self.map.retain(|_, s| {
             let limit = match s.activity {
                 Activity::NeedsYou | Activity::Error => EXPIRE_BLOCKED_SECONDS,
+                _ if s.turn_start.is_some() => EXPIRE_BLOCKED_SECONDS,
                 _ => EXPIRE_SECONDS,
             };
             now.saturating_sub(s.last_seen) < limit
@@ -208,6 +236,7 @@ mod tests {
             notification_type: None,
             source: "terminal".into(),
             terminal_pid: None,
+            agent_id: None,
         }
     }
 
@@ -416,6 +445,143 @@ mod tests {
         let v = &s.list()[0];
         assert_eq!(v.source, "terminal");
         assert_eq!(v.terminal_pid, Some(7));
+    }
+
+    fn ev_agent(name: &str, sid: &str, tool: Option<&str>, agent: Option<&str>) -> HookEvent {
+        let mut e = ev(name, sid, tool);
+        e.agent_id = agent.map(String::from);
+        e
+    }
+
+    #[test]
+    fn long_running_tool_is_not_expired_mid_turn() {
+        let mut s = Sessions::new();
+        s.apply(&ev("UserPromptSubmit", "a", None), 0);
+        s.apply(&ev("PreToolUse", "a", Some("Bash")), 1);
+        s.expire(1 + 1799);
+        assert_eq!(s.list().len(), 1);
+        s.expire(1 + 1800); // old limit would drop it here
+        assert_eq!(s.list().len(), 1);
+        s.expire(1 + 86399);
+        assert_eq!(s.list().len(), 1);
+        let r = s.apply(&ev("Stop", "a", None), 2000);
+        assert_eq!(r.turn_seconds, Some(2000));
+        // Turn over: the normal limit applies again.
+        s.expire(2000 + 1799);
+        assert_eq!(s.list().len(), 1);
+        s.expire(2000 + 1800);
+        assert!(s.list().is_empty());
+    }
+
+    #[test]
+    fn turn_in_progress_expires_after_a_day() {
+        let mut s = Sessions::new();
+        s.apply(&ev("UserPromptSubmit", "a", None), 0);
+        s.expire(86399);
+        assert_eq!(s.list().len(), 1);
+        s.expire(86400);
+        assert!(s.list().is_empty());
+    }
+
+    #[test]
+    fn sibling_pre_tool_use_does_not_clear_needs_you() {
+        let mut s = Sessions::new();
+        s.apply(&ev_agent("PermissionRequest", "a", Some("Bash"), Some("sub1")), 1);
+        assert_eq!(act(&s, "a"), Activity::NeedsYou);
+        s.apply(&ev_agent("PreToolUse", "a", Some("Read"), Some("sub2")), 2);
+        assert_eq!(act(&s, "a"), Activity::NeedsYou);
+        assert_eq!(s.list()[0].since, 1);
+        s.apply(&ev_agent("PreToolUse", "a", Some("Read"), None), 3);
+        assert_eq!(act(&s, "a"), Activity::NeedsYou);
+        // The blocked agent itself resuming clears it.
+        s.apply(&ev_agent("PreToolUse", "a", Some("Bash"), Some("sub1")), 4);
+        assert_eq!(act(&s, "a"), Activity::Typing);
+    }
+
+    #[test]
+    fn main_session_block_is_cleared_only_by_main_session() {
+        let mut s = Sessions::new();
+        s.apply(&ev("Notification", "a", None), 1);
+        s.apply(&ev_agent("PreToolUse", "a", Some("Read"), Some("sub1")), 2);
+        assert_eq!(act(&s, "a"), Activity::NeedsYou);
+        s.apply(&ev("PreToolUse", "a", Some("Read")), 3);
+        assert_eq!(act(&s, "a"), Activity::Reading);
+    }
+
+    #[test]
+    fn prompt_stop_and_end_clear_needs_you_whatever_the_agent() {
+        for name in ["UserPromptSubmit", "Stop"] {
+            let mut s = Sessions::new();
+            s.apply(&ev_agent("PermissionRequest", "a", None, Some("sub1")), 1);
+            s.apply(&ev(name, "a", None), 2);
+            assert_ne!(act(&s, "a"), Activity::NeedsYou, "{name}");
+        }
+        let mut s = Sessions::new();
+        s.apply(&ev_agent("PermissionRequest", "a", None, Some("sub1")), 1);
+        s.apply(&ev("SessionEnd", "a", None), 2);
+        assert!(s.list().is_empty());
+    }
+
+    #[test]
+    fn sibling_event_then_notification_does_not_realert() {
+        let mut s = Sessions::new();
+        assert!(s.apply(&ev_agent("PermissionRequest", "a", None, Some("sub1")), 1).newly_blocked);
+        s.apply(&ev_agent("PreToolUse", "a", Some("Read"), Some("sub2")), 2);
+        let r = s.apply(&ev_agent("Notification", "a", None, Some("sub1")), 3);
+        assert!(!r.newly_blocked);
+    }
+
+    #[test]
+    fn only_prompt_notification_types_block() {
+        for (ty, blocks) in [
+            (Some("permission_prompt"), true),
+            (Some("elicitation_dialog"), true),
+            (None, true),
+            (Some("auth_success"), false),
+            (Some("idle_prompt"), false),
+            (Some("something_new"), false),
+        ] {
+            let mut s = Sessions::new();
+            s.apply(&ev("UserPromptSubmit", "a", None), 1);
+            s.apply(&ev("Stop", "a", None), 5);
+            let mut e = ev("Notification", "a", None);
+            e.notification_type = ty.map(String::from);
+            let r = s.apply(&e, 10);
+            assert_eq!(r.newly_blocked, blocks, "{ty:?}");
+            let want = if blocks { Activity::NeedsYou } else { Activity::Done };
+            assert_eq!(act(&s, "a"), want, "{ty:?}");
+            if !blocks {
+                assert_eq!(s.list()[0].since, 5, "{ty:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn first_non_empty_project_is_kept() {
+        let mut s = Sessions::new();
+        let mut e = ev("SessionStart", "a", None);
+        e.cwd = String::new();
+        s.apply(&e, 1);
+        assert_eq!(s.list()[0].project, "");
+        s.apply(&ev("PreToolUse", "a", Some("Read")), 2); // cwd C:\git\proj
+        assert_eq!(s.list()[0].project, "proj");
+        let mut e = ev("PreToolUse", "a", Some("Read"));
+        e.cwd = r"C:\git\other".into();
+        s.apply(&e, 3);
+        assert_eq!(s.list()[0].project, "proj");
+        let mut e = ev("PreToolUse", "a", Some("Read"));
+        e.cwd = String::new();
+        s.apply(&e, 4);
+        assert_eq!(s.list()[0].project, "proj");
+    }
+
+    #[test]
+    fn post_tool_use_is_not_a_known_event() {
+        // Nothing installed sends it, so it must not change state.
+        let mut s = Sessions::new();
+        s.apply(&ev("PermissionRequest", "a", None), 1);
+        s.apply(&ev("PostToolUse", "a", Some("Bash")), 2);
+        assert_eq!(act(&s, "a"), Activity::NeedsYou);
     }
 
     #[test]

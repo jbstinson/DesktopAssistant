@@ -128,7 +128,9 @@ impl RuleSet {
             return Alert::silent();
         }
         // A prompt that already alerted must not alert again.
-        if t.tier == Tier::NeedsYou && !applied.newly_blocked {
+        // Only events that can repeat for one prompt are deduped. Others never set the flag.
+        let dedupes = matches!(e.name.as_str(), "PermissionRequest" | "Notification" | "StopFailure");
+        if t.tier == Tier::NeedsYou && dedupes && !applied.newly_blocked {
             return Alert { tier: t.tier, sound: None, speak: None };
         }
         Alert {
@@ -180,6 +182,7 @@ mod tests {
             notification_type: None,
             source: "terminal".into(),
             terminal_pid: None,
+            agent_id: None,
         }
     }
     fn ap(turn: Option<u64>, blocked: bool) -> Applied {
@@ -220,6 +223,46 @@ mod tests {
         e.notification_type = Some("idle_prompt".into());
         let a = defaults().evaluate(&e, &ap(None, true), "proj");
         assert_eq!(a, Alert { tier: Tier::Silent, sound: None, speak: None });
+    }
+
+    #[test]
+    fn needs_you_on_other_events_always_alerts() {
+        let r = RuleSet::parse(
+            "[[rule]]
+when = { event = \"Stop\", min_turn_seconds = 10 }
+             then = { tier = \"needs_you\", sound = \"alert\", speak = \"{project} done\" }",
+        )
+        .unwrap();
+        // Stop never sets newly_blocked; it must still be heard.
+        let a = r.evaluate(&ev("Stop"), &ap(Some(30), false), "proj");
+        assert_eq!(a, Alert { tier: Tier::NeedsYou, sound: s("alert"), speak: s("proj done") });
+        let a = r.evaluate(&ev("Stop"), &ap(Some(5), false), "proj");
+        assert_eq!(a.tier, Tier::Silent);
+    }
+
+    #[test]
+    fn dedupe_applies_to_blocking_events_only() {
+        let r = RuleSet::parse("[[rule]]
+then = { tier = \"needs_you\", sound = \"alert\", speak = \"x\" }").unwrap();
+        for name in ["PermissionRequest", "Notification", "StopFailure"] {
+            let a = r.evaluate(&ev(name), &ap(None, false), "p");
+            assert_eq!(a, Alert { tier: Tier::NeedsYou, sound: None, speak: None }, "{name}");
+            assert_eq!(r.evaluate(&ev(name), &ap(None, true), "p").sound, s("alert"), "{name}");
+        }
+        for name in ["Stop", "SessionEnd", "PreToolUse", "PostToolUseFailure"] {
+            assert_eq!(r.evaluate(&ev(name), &ap(None, false), "p").sound, s("alert"), "{name}");
+        }
+    }
+
+    #[test]
+    fn ignored_notification_types_make_no_sound_with_default_rules() {
+        // sessions leaves newly_blocked false for these, so the dedupe keeps them quiet.
+        for ty in ["auth_success", "idle_prompt", "something_new"] {
+            let mut e = ev("Notification");
+            e.notification_type = Some(ty.into());
+            let a = defaults().evaluate(&e, &ap(None, false), "proj");
+            assert_eq!((a.sound, a.speak), (None, None), "{ty}");
+        }
     }
 
     #[test]
