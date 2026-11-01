@@ -43,6 +43,13 @@ fn run() {
         event["terminal_pid"] = json!(terminal::terminal_pid());
     }
 
+    // Windows takes about 2 seconds to report a refused loopback connect. A live app on
+    // loopback accepts almost at once, so give up fast when nothing is listening.
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    if std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(150)).is_err() {
+        return;
+    }
+
     // The URL is built only from the port, so the target is always loopback;
     // redirects are disabled so a stale port cannot send us elsewhere.
     let agent = ureq::AgentBuilder::new()

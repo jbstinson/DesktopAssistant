@@ -51,10 +51,6 @@ $data = Join-Path $sandbox "appdata\DesktopAssistant"
 New-Item -ItemType Directory -Force $data, (Join-Path $sandbox "profile") | Out-Null
 $env:APPDATA = Join-Path $sandbox "appdata"; $env:USERPROFILE = Join-Path $sandbox "profile"
 $app = $null
-# If Windows animation effects are off (as in some remote sessions), the page treats that as
-# "reduce motion" and nothing animates. This test-only browser flag makes the page animate anyway,
-# so the animating numbers are real. It changes no system setting.
-$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--blink-settings=prefersReducedMotion=0"
 try {
   $app = Start-Process $exe -PassThru
   Start-Sleep -Seconds 8
@@ -71,7 +67,6 @@ try {
 finally {
   if ($app) { Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue }
   Start-Sleep -Milliseconds 500
-  Remove-Item Env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS -ErrorAction SilentlyContinue
   $env:APPDATA = $oldAppData; $env:USERPROFILE = $oldProfile
   Remove-Item $sandbox -Recurse -Force -ErrorAction SilentlyContinue
 }

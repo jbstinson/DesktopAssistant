@@ -76,20 +76,26 @@ fn forwards_mapped_fields_without_tool_input() {
     let server = std::thread::spawn(move || {
         l.set_nonblocking(true).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
-        let mut s = loop {
-            match l.accept() {
-                Ok((s, _)) => break s,
-                Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+        // The hook first opens a bare probe connection; skip any connection that sends nothing.
+        let (mut s, mut buf) = 'conn: loop {
+            let mut s = match l.accept() {
+                Ok((s, _)) => s,
+                Err(_) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
                 Err(e) => panic!("hook never connected: {e}"),
+            };
+            s.set_nonblocking(false).unwrap();
+            s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut chunk = [0u8; 1024];
+            let n = s.read(&mut chunk).unwrap_or(0);
+            if n > 0 {
+                break 'conn (s, chunk[..n].to_vec());
             }
         };
-        s.set_nonblocking(false).unwrap();
-        s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-        let mut buf = Vec::new();
         let mut chunk = [0u8; 1024];
         loop {
-            let n = s.read(&mut chunk).unwrap();
-            buf.extend_from_slice(&chunk[..n]);
             let text = String::from_utf8_lossy(&buf).to_string();
             if let Some(i) = text.find("\r\n\r\n") {
                 let len: usize = text
@@ -104,6 +110,8 @@ fn forwards_mapped_fields_without_tool_input() {
                     break;
                 }
             }
+            let n = s.read(&mut chunk).unwrap();
+            buf.extend_from_slice(&chunk[..n]);
         }
         s.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n").unwrap();
         String::from_utf8_lossy(&buf).to_string()
@@ -140,4 +148,28 @@ fn server_that_never_replies_still_exits_zero_within_two_seconds() {
     });
     run(&d, EV, &[]);
     drop(held);
+}
+
+#[test]
+fn dead_port_exits_zero_quickly() {
+    let d = temp_appdata("deadfast");
+    let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    std::fs::write(
+        d.join("DesktopAssistant/endpoint.json"),
+        format!(r#"{{"port":{port},"token":"t"}}"#),
+    )
+    .unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_da-hook"));
+    cmd.env("APPDATA", &d)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let start = Instant::now();
+    let mut child = cmd.spawn().unwrap();
+    let _ = child.stdin.take().unwrap().write_all(EV.as_bytes());
+    let mut out = Vec::new();
+    child.stdout.take().unwrap().read_to_end(&mut out).unwrap();
+    assert!(child.wait().unwrap().success());
+    assert!(out.is_empty());
+    assert!(start.elapsed() < Duration::from_millis(500), "too slow: {:?}", start.elapsed());
 }

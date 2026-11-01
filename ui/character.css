@@ -1,4 +1,4 @@
-/* Poses and animations for the robot. Only transform and opacity are animated.
+/* Poses and animations for the robot. Only transform and opacity are animated, in steps (about 7 updates a second) to keep GPU use low.
    Each state's look lives under [data-state="..."]; ids come from character.svg.js. */
 
 html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
@@ -22,26 +22,26 @@ body { display: grid; place-items: center; }
 [data-state="asleep"] #zzz { opacity: 1; }
 
 /* reading: eyes sweep side to side. */
-[data-state="reading"] #eyes { animation: look-around 2.6s ease-in-out infinite; }
-[data-state="reading"] #head { animation: head-follow 2.6s ease-in-out infinite; }
+[data-state="reading"] #eyes { animation: look-around 2.6s steps(9) infinite; }
+[data-state="reading"] #head { animation: head-follow 2.6s steps(9) infinite; }
 
 /* typing: arms alternate over a keyboard. */
 [data-state="typing"] #keys { opacity: 1; }
 [data-state="typing"] #eyes { transform: translateY(4px); }
-[data-state="typing"] #arm-left { transform: rotate(-22deg); animation: tap-left 0.36s ease-in-out infinite alternate; }
-[data-state="typing"] #arm-right { transform: rotate(22deg); animation: tap-right 0.36s ease-in-out infinite alternate; }
+[data-state="typing"] #arm-left { transform: rotate(-22deg); animation: tap-left 0.36s steps(3) infinite alternate; }
+[data-state="typing"] #arm-right { transform: rotate(22deg); animation: tap-right 0.36s steps(3) infinite alternate; }
 
 /* thinking: looks up with a bubble of pulsing dots. */
 [data-state="thinking"] #head { transform: rotate(-6deg); }
-[data-state="thinking"] #eyes { animation: look-up 3s ease-in-out infinite; }
+[data-state="thinking"] #eyes { animation: look-up 3s steps(10) infinite; }
 [data-state="thinking"] #think { opacity: 1; }
-[data-state="thinking"] #think-1 { animation: pulse 1.5s ease-in-out infinite; }
-[data-state="thinking"] #think-2 { animation: pulse 1.5s ease-in-out 0.25s infinite; }
-[data-state="thinking"] #think-3 { animation: pulse 1.5s ease-in-out 0.5s infinite; }
+[data-state="thinking"] #think-1 { animation: pulse 1.5s steps(5) infinite; }
+[data-state="thinking"] #think-2 { animation: pulse 1.5s steps(5) 0.25s infinite; }
+[data-state="thinking"] #think-3 { animation: pulse 1.5s steps(5) 0.5s infinite; }
 
 /* needs-you: waves until handled; a badge shows the count when more than one. */
 [data-state="needs-you"] #eyes-shape { transform: scale(1.12); }
-[data-state="needs-you"] #arm-right { transform: rotate(-150deg); animation: wave 0.7s ease-in-out infinite alternate; }
+[data-state="needs-you"] #arm-right { transform: rotate(-150deg); animation: wave 0.7s steps(5) infinite alternate; }
 [data-state="needs-you"][data-multi="true"] #badge { opacity: 1; }
 
 /* done: bell rings once, then holds still. */
@@ -77,11 +77,6 @@ body { display: grid; place-items: center; }
   40% { transform: translateX(4px); }
   60% { transform: translateX(-3px); }
   80% { transform: translateX(3px); }
-}
-
-/* Reduced motion: poses stay, loops stop. */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; }
 }
 
 /* Hidden from the tray or hotkey: nothing should animate. */
