@@ -17,6 +17,15 @@ const SVG = `
   <circle cx="70" cy="102" r="8" fill="#ccfbf1"/>
   <circle cx="70" cy="102" r="3.5" fill="#f59e0b"/>
 
+  <g id="book">
+    <rect x="42" y="99" width="56" height="27" rx="3" fill="#b45309"/>
+    <rect x="45" y="101" width="24.5" height="23" rx="1.5" fill="#f8fafc"/>
+    <rect x="70.5" y="101" width="24.5" height="23" rx="1.5" fill="#e2e8f0"/>
+    <g fill="#94a3b8"><rect x="48.5" y="105" width="17" height="1.8" rx="0.9"/><rect x="48.5" y="110" width="18" height="1.8" rx="0.9"/><rect x="48.5" y="115" width="14" height="1.8" rx="0.9"/><rect x="74" y="105" width="17" height="1.8" rx="0.9"/><rect x="74" y="110" width="18" height="1.8" rx="0.9"/><rect x="74" y="115" width="14" height="1.8" rx="0.9"/></g>
+    <rect id="book-page" x="70.5" y="101" width="24.5" height="23" rx="1.5" fill="#f8fafc"/>
+    <rect x="69" y="99" width="2" height="27" fill="#78350f"/>
+  </g>
+
   <g id="arm-left">
     <rect x="31.0" y="90" width="11" height="20" rx="5.5" fill="#2dd4bf"/>
     <g id="forearm-left">

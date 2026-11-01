@@ -13,18 +13,25 @@ body { display: grid; place-items: center; }
 #forearm-left { transform-box: view-box; transform-origin: 36.5px 107px; }
 #forearm-right { transform-box: view-box; transform-origin: 103.5px 107px; }
 .finger { transform-box: fill-box; transform-origin: 50% 0; }
+#book-page { transform-box: view-box; transform-origin: 70px 112px; opacity: 0; }
 #bell { transform-box: view-box; transform-origin: 122px 92px; }
 #eyes, #eyes-shape { transform-box: fill-box; transform-origin: center; }
 
 /* Things that only show in some states. */
-#keys, #bell, #think, #zzz, #alarm, #badge { opacity: 0; }
+#keys, #book, #bell, #think, #zzz, #alarm, #badge { opacity: 0; }
 
 /* asleep: still, eyes shut, no animation. */
 [data-state="asleep"] #eyes-shape { transform: scaleY(0.12); }
 [data-state="asleep"] #head { transform: rotate(5deg); }
 [data-state="asleep"] #zzz { opacity: 1; }
 
-/* reading: eyes sweep side to side. */
+/* reading: holds an open book, eyes scan the page, and a page turns now and then. */
+[data-state="reading"] #book { opacity: 1; }
+[data-state="reading"] #book-page { animation: page-turn 5.4s step-end infinite; }
+[data-state="reading"] #arm-left { transform: rotate(8deg); }
+[data-state="reading"] #arm-right { transform: rotate(-8deg); }
+[data-state="reading"] #forearm-left { transform: rotate(-58deg); }
+[data-state="reading"] #forearm-right { transform: rotate(58deg); }
 [data-state="reading"] #eyes { animation: look-around 2.6s steps(9) infinite; }
 [data-state="reading"] #head { animation: head-follow 2.6s steps(9) infinite; }
 
@@ -66,7 +73,16 @@ body { display: grid; place-items: center; }
 [data-state="error"] #alarm { opacity: 1; }
 [data-state="error"] #head { animation: startle 0.5s ease-in-out 1; }
 
-@keyframes look-around { 0%, 100% { transform: translateX(-6px); } 50% { transform: translateX(6px); } }
+@keyframes look-around { 0%, 100% { transform: translate(-5px, 2px); } 50% { transform: translate(5px, 2px); } }
+@keyframes page-turn {
+  0% { opacity: 0; transform: scaleX(1); }
+  82% { opacity: 1; transform: scaleX(1); }
+  85% { transform: scaleX(0.55); }
+  88% { transform: scaleX(0.1); }
+  91% { transform: scaleX(-0.55); }
+  94% { transform: scaleX(-1); }
+  97%, 100% { opacity: 0; transform: scaleX(-1); }
+}
 @keyframes head-follow { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
 @keyframes reach-left { 0% { transform: rotate(-56deg); } 50% { transform: rotate(-51deg); } }
 @keyframes reach-right { 0% { transform: rotate(56deg); } 50% { transform: rotate(51deg); } }
