@@ -126,7 +126,7 @@ impl Sessions {
                 Some(Activity::Thinking)
             }
             // Only the agent we are waiting on can say the wait is over; a sibling subagent
-            // working on may not clear it.
+            // working on something else must not clear it.
             "PreToolUse" if waiting_on_another(s, e) => None,
             "PostToolUseFailure" if s.activity == Activity::NeedsYou => None,
             "PreToolUse" => Some(tool_activity(e.tool.as_deref())),
