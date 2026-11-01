@@ -212,10 +212,13 @@ fn main() {
             let (rules, rules_warning) = rules::load_or_create(&rules_path);
             let core: SharedCore = Arc::new(Mutex::new(app::Core::new(rules, rules_warning)));
             // Read-only: a missing or unreadable settings file counts as not connected.
-            let hooks_on = tray::claude_settings_path()
+            let status = tray::claude_settings_path()
                 .zip(std::env::current_exe().ok().map(|e| tray::hook_path_beside(&e)))
-                .is_some_and(|(settings, hook)| tray::detect_hooks_on(&settings, &hook));
-            lock(&core).set_hooks_on(hooks_on);
+                .map_or(tray::HookStatus { on: false, stale: false }, |(settings, hook)| {
+                    tray::hook_status(&settings, &hook)
+                });
+            let hooks_on = status.on;
+            lock(&core).set_hooks_status(status);
             app.manage(core.clone());
 
             // The emit mutex is held across snapshot and emit so an older snapshot can never

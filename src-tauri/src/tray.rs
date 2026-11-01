@@ -40,17 +40,34 @@ pub fn detect_hooks_on(settings: &Path, hook: &Path) -> bool {
         .is_ok_and(|text| installer::is_installed(&text, &hook.to_string_lossy()))
 }
 
+/// How our hooks stand in Claude Code's settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HookStatus {
+    /// All nine events point at this hook exe.
+    pub on: bool,
+    /// Entries of ours exist but not all point here (the exe moved): Connect repairs them.
+    pub stale: bool,
+}
+
+/// Reads only; any failure counts as not connected and not stale.
+pub fn hook_status(settings: &Path, hook: &Path) -> HookStatus {
+    let Ok(text) = std::fs::read_to_string(settings) else {
+        return HookStatus { on: false, stale: false };
+    };
+    let on = installer::is_installed(&text, &hook.to_string_lossy());
+    HookStatus { on, stale: !on && installer::has_any(&text) }
+}
+
 /// Adds (`enable`) or removes our hook entries. Enabling with no hook exe on disk is an
 /// error and changes nothing.
 pub fn set_hooks(settings: &Path, hook: &Path, enable: bool) -> Result<(), String> {
-    let hook_str = hook.to_string_lossy().into_owned();
     if enable {
         if !hook.is_file() {
             return Err(format!("da-hook.exe was not found at {}", hook.display()));
         }
-        installer::apply(settings, Change::Add(hook_str))
+        installer::apply(settings, Change::Add(hook.to_string_lossy().into_owned()))
     } else {
-        installer::apply(settings, Change::Remove(hook_str))
+        installer::apply(settings, Change::Remove)
     }
 }
 
@@ -155,26 +172,26 @@ fn toggle_quiet(items: &TrayItems, core: &Core, publish: &Publish, queue: &Queue
 fn toggle_hooks(items: &TrayItems, core: &Core, publish: &Publish) {
     let settings_hook = claude_settings_path().zip(std::env::current_exe().ok().map(|e| hook_path_beside(&e)));
     let current = lock(core).snapshot().hooks_on;
-    let finish = |on: bool| {
-        lock(core).set_hooks_on(on);
-        let _ = items.hooks.set_checked(on);
+    let finish = |status: HookStatus| {
+        lock(core).set_hooks_status(status);
+        let _ = items.hooks.set_checked(status.on);
         publish();
     };
     let Some((settings, hook)) = settings_hook else {
         show_error("Cannot find your Claude Code settings folder (USERPROFILE is not set).");
-        finish(current);
+        finish(lock(core).hooks_status());
         return;
     };
     let enable = !current;
     if !ask(&confirm_text(&settings, enable)) {
-        finish(current);
+        finish(lock(core).hooks_status());
         return;
     }
     if let Err(e) = set_hooks(&settings, &hook, enable) {
         show_error(&format!("Nothing was changed.\n\n{e}"));
     }
     // Trust the file, not the click.
-    finish(detect_hooks_on(&settings, &hook));
+    finish(hook_status(&settings, &hook));
 }
 
 /// Opens rules.toml in Notepad, which is always there and shows plain text.
@@ -271,6 +288,32 @@ mod tests {
         std::fs::write(&settings, "{ not json").unwrap();
         assert!(!detect_hooks_on(&settings, &hook));
         assert_eq!(std::fs::read_to_string(&settings).unwrap(), "{ not json");
+    }
+
+    #[test]
+    fn moved_exe_is_stale_and_connect_repairs_it() {
+        let (settings, hook) = fixture("stale", true);
+        set_hooks(&settings, &hook, true).unwrap();
+        assert_eq!(hook_status(&settings, &hook), HookStatus { on: true, stale: false });
+        // The app folder moves: same settings, different hook path.
+        let (_, moved) = fixture("stale-moved", true);
+        let before = std::fs::read_to_string(&settings).unwrap();
+        assert_eq!(hook_status(&settings, &moved), HookStatus { on: false, stale: true });
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), before, "status never writes");
+        set_hooks(&settings, &moved, true).unwrap();
+        assert_eq!(hook_status(&settings, &moved), HookStatus { on: true, stale: false });
+        assert_eq!(hook_status(&settings, &hook), HookStatus { on: false, stale: true });
+        let text = std::fs::read_to_string(&settings).unwrap();
+        assert_eq!(text.matches("da-hook.exe").count(), 9);
+        // Disconnect from the new location also leaves nothing behind.
+        set_hooks(&settings, &moved, false).unwrap();
+        assert_eq!(hook_status(&settings, &moved), HookStatus { on: false, stale: false });
+    }
+
+    #[test]
+    fn missing_settings_is_neither_on_nor_stale() {
+        let (settings, hook) = fixture("status-none", true);
+        assert_eq!(hook_status(&settings, &hook), HookStatus { on: false, stale: false });
     }
 
     #[test]

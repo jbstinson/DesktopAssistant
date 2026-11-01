@@ -39,7 +39,12 @@ pub struct Core {
     hotkey_warning: Option<String>,
     quiet: bool,
     hooks_on: bool,
+    hooks_stale: bool,
 }
+
+/// Shown when our hook entries exist but point at a different da-hook.exe than this app's.
+pub const HOOKS_STALE_WARNING: &str =
+    "The Claude Code hook path is out of date: use the tray menu, Connect to Claude Code, to repair it";
 
 fn state_name(a: Activity) -> &'static str {
     match a {
@@ -63,6 +68,7 @@ impl Core {
             hotkey_warning: None,
             quiet: false,
             hooks_on: false,
+            hooks_stale: false,
         }
     }
 
@@ -106,6 +112,15 @@ impl Core {
         self.hooks_on = on;
     }
 
+    pub fn set_hooks_status(&mut self, status: crate::tray::HookStatus) {
+        self.hooks_on = status.on;
+        self.hooks_stale = status.stale;
+    }
+
+    pub fn hooks_status(&self) -> crate::tray::HookStatus {
+        crate::tray::HookStatus { on: self.hooks_on, stale: self.hooks_stale }
+    }
+
     /// Remove one session by hand, whatever its state.
     pub fn dismiss(&mut self, id: &str) {
         self.sessions.dismiss(id);
@@ -143,11 +158,13 @@ impl Core {
                 terminal_pid: v.terminal_pid,
             })
             .collect();
-        let warnings: Vec<&str> = [&self.rules_warning, &self.connection_warning, &self.hotkey_warning]
-            .into_iter()
-            .flatten()
-            .map(String::as_str)
-            .collect();
+        let stale = self.hooks_stale.then(|| HOOKS_STALE_WARNING.to_string());
+        let warnings: Vec<&str> =
+            [&self.rules_warning, &self.connection_warning, &self.hotkey_warning, &stale]
+                .into_iter()
+                .flatten()
+                .map(String::as_str)
+                .collect();
         Snapshot {
             state: self.sessions.character_state().to_string(),
             waiting: sessions.iter().filter(|s| s.state == "needs-you").count(),
@@ -368,6 +385,21 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         let s = core.snapshot();
         assert_eq!((s.state.as_str(), s.waiting), ("needs-you", 1));
         assert!(s.quiet);
+    }
+
+    #[test]
+    fn stale_hook_path_shows_a_warning_until_repaired() {
+        use crate::tray::HookStatus;
+        let mut core = Core::new(defaults(), None);
+        core.set_hooks_status(HookStatus { on: false, stale: true });
+        let s = core.snapshot();
+        assert!(!s.hooks_on);
+        let w = s.warning.unwrap();
+        assert!(w.contains("out of date") && w.contains("tray"), "{w}");
+        core.set_hooks_status(HookStatus { on: true, stale: false });
+        let s = core.snapshot();
+        assert!(s.hooks_on);
+        assert_eq!(s.warning, None);
     }
 
     #[test]
