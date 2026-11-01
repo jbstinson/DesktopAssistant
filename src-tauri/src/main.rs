@@ -7,6 +7,9 @@ mod jump;
 mod listener;
 mod overlay;
 mod paths;
+// Consumed by the approval wiring in Task 4; remove this allow then.
+#[allow(dead_code)]
+mod permission;
 mod position;
 mod rules;
 mod rules_watch;
