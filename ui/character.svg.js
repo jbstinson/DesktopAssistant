@@ -13,18 +13,32 @@ const SVG = `
     </g>
   </g>
 
-  <g id="arm-left">
-    <rect x="31" y="90" width="11" height="29" rx="5.5" fill="#2dd4bf"/>
-    <circle cx="36.5" cy="118" r="6" fill="#99f6e4"/>
-  </g>
-  <g id="arm-right">
-    <rect x="98" y="90" width="11" height="29" rx="5.5" fill="#2dd4bf"/>
-    <circle cx="103.5" cy="118" r="6" fill="#99f6e4"/>
-  </g>
-
   <rect x="43" y="82" width="54" height="40" rx="16" fill="#14b8a6"/>
   <circle cx="70" cy="102" r="8" fill="#ccfbf1"/>
   <circle cx="70" cy="102" r="3.5" fill="#f59e0b"/>
+
+  <g id="arm-left">
+    <rect x="31.0" y="90" width="11" height="20" rx="5.5" fill="#2dd4bf"/>
+    <g id="forearm-left">
+      <rect x="32.0" y="107" width="9" height="14" rx="4.5" fill="#2dd4bf"/>
+      <circle cx="36.5" cy="107" r="5" fill="#0f766e"/>
+        <rect id="finger-l1" class="finger" x="32.3" y="124" width="2.4" height="6" rx="1.2" fill="#99f6e4"/>
+        <rect id="finger-l2" class="finger" x="35.3" y="124" width="2.4" height="6" rx="1.2" fill="#99f6e4"/>
+        <rect id="finger-l3" class="finger" x="38.3" y="124" width="2.4" height="6" rx="1.2" fill="#99f6e4"/>
+      <circle cx="36.5" cy="122" r="5" fill="#99f6e4"/>
+    </g>
+  </g>
+  <g id="arm-right">
+    <rect x="98.0" y="90" width="11" height="20" rx="5.5" fill="#2dd4bf"/>
+    <g id="forearm-right">
+      <rect x="99.0" y="107" width="9" height="14" rx="4.5" fill="#2dd4bf"/>
+      <circle cx="103.5" cy="107" r="5" fill="#0f766e"/>
+        <rect id="finger-r1" class="finger" x="99.3" y="124" width="2.4" height="6" rx="1.2" fill="#99f6e4"/>
+        <rect id="finger-r2" class="finger" x="102.3" y="124" width="2.4" height="6" rx="1.2" fill="#99f6e4"/>
+        <rect id="finger-r3" class="finger" x="105.3" y="124" width="2.4" height="6" rx="1.2" fill="#99f6e4"/>
+      <circle cx="103.5" cy="122" r="5" fill="#99f6e4"/>
+    </g>
+  </g>
 
   <g id="head">
     <line x1="70" y1="24" x2="70" y2="12" stroke="#0f766e" stroke-width="3" stroke-linecap="round"/>

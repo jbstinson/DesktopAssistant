@@ -10,6 +10,9 @@ body { display: grid; place-items: center; }
 #head { transform-box: view-box; transform-origin: 70px 82px; }
 #arm-left { transform-box: view-box; transform-origin: 36.5px 92px; }
 #arm-right { transform-box: view-box; transform-origin: 103.5px 92px; }
+#forearm-left { transform-box: view-box; transform-origin: 36.5px 107px; }
+#forearm-right { transform-box: view-box; transform-origin: 103.5px 107px; }
+.finger { transform-box: fill-box; transform-origin: 50% 0; }
 #bell { transform-box: view-box; transform-origin: 122px 92px; }
 #eyes, #eyes-shape { transform-box: fill-box; transform-origin: center; }
 
@@ -25,11 +28,18 @@ body { display: grid; place-items: center; }
 [data-state="reading"] #eyes { animation: look-around 2.6s steps(9) infinite; }
 [data-state="reading"] #head { animation: head-follow 2.6s steps(9) infinite; }
 
-/* typing: arms alternate over a keyboard. */
+/* typing: elbows out, forearms in, fingertips on the keys. Every change lands on a 0.15s beat. */
 [data-state="typing"] #keys { opacity: 1; }
 [data-state="typing"] #eyes { transform: translateY(4px); }
-[data-state="typing"] #arm-left { transform: rotate(-22deg); animation: tap-left 0.36s steps(3) infinite alternate; }
-[data-state="typing"] #arm-right { transform: rotate(22deg); animation: tap-right 0.36s steps(3) infinite alternate; }
+[data-state="typing"] #arm-left { transform: rotate(12deg); }
+[data-state="typing"] #arm-right { transform: rotate(-12deg); }
+[data-state="typing"] #forearm-left { animation: reach-left 0.6s step-end infinite; }
+[data-state="typing"] #forearm-right { animation: reach-right 0.6s step-end -0.3s infinite; }
+[data-state="typing"] .finger { animation: finger-tap 0.6s step-end infinite; }
+[data-state="typing"] #finger-l2 { animation-delay: -0.15s; }
+[data-state="typing"] #finger-l3 { animation-delay: -0.3s; }
+[data-state="typing"] #finger-r1 { animation-delay: -0.45s; }
+[data-state="typing"] #finger-r3 { animation-delay: -0.15s; }
 
 /* thinking: looks up with a bubble of pulsing dots. */
 [data-state="thinking"] #head { transform: rotate(-6deg); }
@@ -58,8 +68,9 @@ body { display: grid; place-items: center; }
 
 @keyframes look-around { 0%, 100% { transform: translateX(-6px); } 50% { transform: translateX(6px); } }
 @keyframes head-follow { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
-@keyframes tap-left { from { transform: rotate(-26deg); } to { transform: rotate(-8deg); } }
-@keyframes tap-right { from { transform: rotate(8deg); } to { transform: rotate(26deg); } }
+@keyframes reach-left { 0% { transform: rotate(-56deg); } 50% { transform: rotate(-51deg); } }
+@keyframes reach-right { 0% { transform: rotate(56deg); } 50% { transform: rotate(51deg); } }
+@keyframes finger-tap { 0% { transform: scaleY(1); } 25% { transform: scaleY(0.6); } 50% { transform: scaleY(1); } }
 @keyframes look-up { 0%, 100% { transform: translate(-3px, -6px); } 50% { transform: translate(3px, -6px); } }
 @keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
 @keyframes wave { from { transform: rotate(-135deg); } to { transform: rotate(-175deg); } }
