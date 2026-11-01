@@ -26,6 +26,13 @@ const SVG = `
     <rect x="69" y="99" width="2" height="27" fill="#78350f"/>
   </g>
 
+  <g id="bell">
+    <rect x="120.5" y="84" width="3" height="11" rx="1.5" fill="#d97706"/>
+    <path d="M122 94 q-9 0 -9 10 v5 h18 v-5 q0 -10 -9 -10 z" fill="#fbbf24"/>
+    <rect x="111" y="109" width="22" height="3.5" rx="1.7" fill="#d97706"/>
+    <circle cx="122" cy="115" r="2.8" fill="#d97706"/>
+  </g>
+
   <g id="arm-left">
     <rect x="31.0" y="90" width="11" height="20" rx="5.5" fill="#2dd4bf"/>
     <g id="forearm-left">
@@ -63,12 +70,6 @@ const SVG = `
       </g>
     </g>
     <path d="M62 64 Q70 69 78 64" fill="none" stroke="#67e8f9" stroke-width="2.5" stroke-linecap="round"/>
-  </g>
-
-  <g id="bell">
-    <path d="M122 92 q-9 0 -9 10 v5 h18 v-5 q0 -10 -9 -10 z" fill="#fbbf24"/>
-    <rect x="111" y="107" width="22" height="3.5" rx="1.7" fill="#d97706"/>
-    <circle cx="122" cy="113" r="2.8" fill="#d97706"/>
   </g>
 
   <g id="think" fill="#94a3b8">

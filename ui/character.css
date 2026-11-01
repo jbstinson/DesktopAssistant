@@ -61,9 +61,10 @@ body { display: grid; place-items: center; }
 [data-state="needs-you"] #arm-right { transform: rotate(-150deg); animation: wave 0.7s steps(5) infinite alternate; }
 [data-state="needs-you"][data-multi="true"] #badge { opacity: 1; }
 
-/* done: bell rings once, then holds still. */
+/* done: lifts the bell in its right hand, rings it once, then holds still. */
 [data-state="done"] #eyes-shape { transform: scaleY(0.55); }
-[data-state="done"] #arm-right { transform: rotate(-60deg); }
+[data-state="done"] #arm-right { transform: rotate(-40deg); }
+[data-state="done"] #forearm-right { transform: rotate(-100deg); }
 [data-state="done"] #bell { opacity: 1; animation: ring 1.6s ease-out 1 both; }
 
 /* error: alarmed pose, a short startle, then holds until handled. */
