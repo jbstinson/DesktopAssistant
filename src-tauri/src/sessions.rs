@@ -111,6 +111,8 @@ impl Sessions {
             "PreToolUse" => Some(tool_activity(e.tool.as_deref())),
             // Work resumed after a block or failure; a tool finishing means it is running again.
             "PostToolUse" | "PostToolUseFailure" => Some(Activity::Thinking),
+            // Fires after a finished turn; the Stop already alerted, so it changes nothing.
+            "Notification" if e.notification_type.as_deref() == Some("idle_prompt") => None,
             "PermissionRequest" | "Notification" => {
                 newly_blocked = s.activity != Activity::NeedsYou;
                 Some(Activity::NeedsYou)
@@ -382,5 +384,22 @@ mod tests {
         let v = &s.list()[0];
         assert_eq!(v.source, "terminal");
         assert_eq!(v.terminal_pid, Some(7));
+    }
+
+    #[test]
+    fn idle_prompt_changes_nothing() {
+        let mut s = Sessions::new();
+        s.apply(&ev("UserPromptSubmit", "a", None), 1);
+        s.apply(&ev("Stop", "a", None), 5);
+        let mut e = ev("Notification", "a", None);
+        e.notification_type = Some("idle_prompt".into());
+        let r = s.apply(&e, 10);
+        assert!(!r.newly_blocked);
+        assert_eq!(act(&s, "a"), Activity::Done);
+        assert_eq!(s.list()[0].since, 5);
+        // Other notification types still block.
+        let mut e = ev("Notification", "a", None);
+        e.notification_type = Some("permission_prompt".into());
+        assert!(s.apply(&e, 11).newly_blocked);
     }
 }
