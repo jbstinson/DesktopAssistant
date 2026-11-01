@@ -6,6 +6,10 @@ mod events;
 #[allow(dead_code)]
 mod sessions;
 mod overlay;
+#[allow(dead_code)]
+mod listener;
+#[allow(dead_code)]
+mod paths;
 
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
