@@ -107,11 +107,6 @@ impl Core {
         self.quiet = quiet;
     }
 
-    /// Whether our hook entries are in Claude Code's settings.
-    pub fn set_hooks_on(&mut self, on: bool) {
-        self.hooks_on = on;
-    }
-
     pub fn set_hooks_status(&mut self, status: crate::tray::HookStatus) {
         self.hooks_on = status.on;
         self.hooks_stale = status.stale;
@@ -368,11 +363,11 @@ when = { event = \"SessionEnd\", project = \"proj\" }
     fn quiet_and_hooks_on_show_in_snapshot() {
         let mut core = Core::new(defaults(), None);
         core.set_quiet(true);
-        core.set_hooks_on(true);
+        core.set_hooks_status(crate::tray::HookStatus { on: true, stale: false });
         let s = core.snapshot();
         assert!(s.quiet && s.hooks_on);
         core.set_quiet(false);
-        core.set_hooks_on(false);
+        core.set_hooks_status(crate::tray::HookStatus { on: false, stale: false });
         let s = core.snapshot();
         assert!(!s.quiet && !s.hooks_on);
     }

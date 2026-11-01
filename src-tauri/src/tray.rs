@@ -34,12 +34,6 @@ pub fn hook_path_beside(exe: &Path) -> PathBuf {
     exe.with_file_name("da-hook.exe")
 }
 
-/// Whether our hook entries are all present. Reads only; any failure counts as false.
-pub fn detect_hooks_on(settings: &Path, hook: &Path) -> bool {
-    std::fs::read_to_string(settings)
-        .is_ok_and(|text| installer::is_installed(&text, &hook.to_string_lossy()))
-}
-
 /// How our hooks stand in Claude Code's settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HookStatus {
@@ -282,11 +276,11 @@ mod tests {
     #[test]
     fn detect_is_false_for_missing_or_broken_files_and_never_writes() {
         let (settings, hook) = fixture("detect-false", true);
-        assert!(!detect_hooks_on(&settings, &hook));
+        assert!(!hook_status(&settings, &hook).on);
         assert!(!settings.exists());
         std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
         std::fs::write(&settings, "{ not json").unwrap();
-        assert!(!detect_hooks_on(&settings, &hook));
+        assert!(!hook_status(&settings, &hook).on);
         assert_eq!(std::fs::read_to_string(&settings).unwrap(), "{ not json");
     }
 
@@ -324,12 +318,12 @@ mod tests {
         std::fs::write(&settings, original).unwrap();
 
         set_hooks(&settings, &hook, true).unwrap();
-        assert!(detect_hooks_on(&settings, &hook));
+        assert!(hook_status(&settings, &hook).on);
         let backup = settings.with_file_name("settings.json.desktop-assistant.bak");
         assert_eq!(std::fs::read_to_string(backup).unwrap(), original);
 
         set_hooks(&settings, &hook, false).unwrap();
-        assert!(!detect_hooks_on(&settings, &hook));
+        assert!(!hook_status(&settings, &hook).on);
         let text = std::fs::read_to_string(&settings).unwrap();
         assert!(text.contains("\"theme\""));
         assert!(!text.contains("da-hook"));
@@ -364,7 +358,7 @@ mod tests {
         set_hooks(&settings, &hook, true).unwrap();
         std::fs::remove_file(&hook).unwrap();
         set_hooks(&settings, &hook, false).unwrap();
-        assert!(!detect_hooks_on(&settings, &hook));
+        assert!(!hook_status(&settings, &hook).on);
     }
 
     #[test]
