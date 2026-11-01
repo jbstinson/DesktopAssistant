@@ -83,3 +83,6 @@ body { display: grid; place-items: center; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; }
 }
+
+/* Hidden from the tray or hotkey: nothing should animate. */
+body.paused *, body.paused *::before, body.paused *::after { animation: none !important; }

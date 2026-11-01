@@ -33,6 +33,9 @@ pub struct Core {
     rules: RuleSet,
     rules_warning: Option<String>,
     connection_warning: Option<String>,
+    hotkey_warning: Option<String>,
+    quiet: bool,
+    hooks_on: bool,
 }
 
 fn state_name(a: Activity) -> &'static str {
@@ -49,7 +52,15 @@ fn state_name(a: Activity) -> &'static str {
 
 impl Core {
     pub fn new(rules: RuleSet, rules_warning: Option<String>) -> Core {
-        Core { sessions: Sessions::new(), rules, rules_warning, connection_warning: None }
+        Core {
+            sessions: Sessions::new(),
+            rules,
+            rules_warning,
+            connection_warning: None,
+            hotkey_warning: None,
+            quiet: false,
+            hooks_on: false,
+        }
     }
 
     /// Apply an event. Returns the alert to deliver, or None when the rules say silent.
@@ -82,6 +93,20 @@ impl Core {
         self.connection_warning = warning;
     }
 
+    pub fn set_hotkey_warning(&mut self, warning: Option<String>) {
+        self.hotkey_warning = warning;
+    }
+
+    /// Do-not-disturb. Only the mirrored flag lives here; the sound queue is muted separately.
+    pub fn set_quiet(&mut self, quiet: bool) {
+        self.quiet = quiet;
+    }
+
+    /// Whether our hook entries are in Claude Code's settings.
+    pub fn set_hooks_on(&mut self, on: bool) {
+        self.hooks_on = on;
+    }
+
     /// Remove one session by hand, whatever its state.
     pub fn dismiss(&mut self, id: &str) {
         self.sessions.dismiss(id);
@@ -109,7 +134,7 @@ impl Core {
                 terminal_pid: v.terminal_pid,
             })
             .collect();
-        let warnings: Vec<&str> = [&self.rules_warning, &self.connection_warning]
+        let warnings: Vec<&str> = [&self.rules_warning, &self.connection_warning, &self.hotkey_warning]
             .into_iter()
             .flatten()
             .map(String::as_str)
@@ -119,9 +144,8 @@ impl Core {
             waiting: sessions.iter().filter(|s| s.state == "needs-you").count(),
             sessions,
             warning: (!warnings.is_empty()).then(|| warnings.join("; ")),
-            // Do-not-disturb and the hook toggle arrive with the tray in later tasks.
-            quiet: false,
-            hooks_on: false,
+            quiet: self.quiet,
+            hooks_on: self.hooks_on,
         }
     }
 }
@@ -279,5 +303,37 @@ mod tests {
         core.handle(ev("PreToolUse", "a", Some("Read")), 1);
         core.handle(ev("SessionEnd", "a", None), 2);
         assert_eq!(core.snapshot().state, "asleep");
+    }
+
+    #[test]
+    fn quiet_and_hooks_on_show_in_snapshot() {
+        let mut core = Core::new(defaults(), None);
+        core.set_quiet(true);
+        core.set_hooks_on(true);
+        let s = core.snapshot();
+        assert!(s.quiet && s.hooks_on);
+        core.set_quiet(false);
+        core.set_hooks_on(false);
+        let s = core.snapshot();
+        assert!(!s.quiet && !s.hooks_on);
+    }
+
+    #[test]
+    fn quiet_still_shows_needs_you() {
+        let mut core = Core::new(defaults(), None);
+        core.set_quiet(true);
+        core.handle(ev("PermissionRequest", "a", None), 1);
+        let s = core.snapshot();
+        assert_eq!((s.state.as_str(), s.waiting), ("needs-you", 1));
+        assert!(s.quiet);
+    }
+
+    #[test]
+    fn hotkey_warning_is_joined_with_the_others() {
+        let mut core = Core::new(defaults(), Some("rules bad".into()));
+        core.set_hotkey_warning(Some("no hotkey".into()));
+        assert_eq!(core.snapshot().warning.as_deref(), Some("rules bad; no hotkey"));
+        core.set_hotkey_warning(None);
+        assert_eq!(core.snapshot().warning.as_deref(), Some("rules bad"));
     }
 }

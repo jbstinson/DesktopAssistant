@@ -4,7 +4,11 @@ import { mountPanel } from "./panel.js";
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
+const { getCurrentWindow } = window.__TAURI__.window;
+
 const ROBOT = 140;
+// A press held this long drags the window; a shorter one is a click.
+const DRAG_MS = 150;
 const PANEL_H = 332;
 
 const robot = document.getElementById("robot");
@@ -24,7 +28,7 @@ let open = false;
 let busy = false;
 
 // The window grows around the robot, so ask Rust to resize first and place things after.
-robot.addEventListener("mousedown", async () => {
+async function togglePanel() {
   if (busy) return;
   busy = true;
   try {
@@ -46,7 +50,32 @@ robot.addEventListener("mousedown", async () => {
   } finally {
     busy = false;
   }
+}
+
+let pressed = false;
+let pressTimer = null;
+robot.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return;
+  pressed = true;
+  // Dragging is off while the panel is open: the window is the panel's size then.
+  if (open) return;
+  pressTimer = setTimeout(() => {
+    pressTimer = null;
+    // The system takes over the mouse during a drag, so no mouseup arrives.
+    pressed = false;
+    getCurrentWindow().startDragging().catch((err) => console.error("startDragging failed", err));
+  }, DRAG_MS);
 });
+window.addEventListener("mouseup", (e) => {
+  if (e.button !== 0 || !pressed) return;
+  pressed = false;
+  if (pressTimer !== null) clearTimeout(pressTimer);
+  pressTimer = null;
+  togglePanel();
+});
+
+// While hidden, a class stops every CSS animation.
+listen("visibility", (e) => document.body.classList.toggle("paused", !e.payload));
 
 let gotEvent = false;
 

@@ -6,21 +6,23 @@ mod events;
 mod listener;
 mod overlay;
 mod paths;
+mod position;
 mod rules;
 mod rules_watch;
 mod sessions;
-// Task 10 wires the installer to the tray; nothing calls it yet.
-#[allow(dead_code)]
+mod tray;
 mod installer;
 
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
-use tauri::{Emitter, Manager, State, WebviewWindow};
+use std::sync::atomic::{AtomicU64, Ordering};
+use tauri::{Emitter, Manager, PhysicalPosition, State, WebviewWindow, WindowEvent};
 
 /// How often silent sessions are expired.
 const TICK: Duration = Duration::from_secs(30);
 
+const HOTKEY_WARNING: &str = "The Ctrl+Alt+D hotkey is taken by another app";
 const HOOKS_WARNING: &str = "Hooks cannot connect: the local listener failed to start";
 
 type SharedCore = Arc<Mutex<app::Core>>;
@@ -127,12 +129,70 @@ fn get_snapshot(core: State<'_, SharedCore>) -> app::Snapshot {
     lock(&core).snapshot()
 }
 
+/// Work areas of all monitors in physical pixels, the primary first.
+fn monitor_rects(window: &WebviewWindow) -> Vec<position::Rect> {
+    let rect = |m: &tauri::Monitor| {
+        let a = m.work_area();
+        position::Rect { x: a.position.x, y: a.position.y, w: a.size.width as i32, h: a.size.height as i32 }
+    };
+    let primary = window.primary_monitor().ok().flatten();
+    let mut all: Vec<tauri::Monitor> = window.available_monitors().unwrap_or_default();
+    if let Some(p) = &primary {
+        if let Some(i) = all.iter().position(|m| m.position() == p.position() && m.size() == p.size()) {
+            all.swap(0, i);
+        }
+    }
+    all.iter().map(rect).collect()
+}
+
+fn state_path() -> std::path::PathBuf {
+    paths::data_dir().join("state.json")
+}
+
+/// Waits until the window has stopped moving, then saves where it ended up. The panel
+/// moves the window too, so nothing is saved while it is open.
+const SAVE_DELAY: Duration = Duration::from_millis(400);
+static MOVE_GEN: AtomicU64 = AtomicU64::new(0);
+
+fn schedule_position_save(handle: tauri::AppHandle) {
+    let gen = MOVE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    std::thread::spawn(move || {
+        std::thread::sleep(SAVE_DELAY);
+        if MOVE_GEN.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        let panel_open = lock(&handle.state::<Mutex<PanelState>>()).robot_offset.is_some();
+        let Some(window) = handle.get_webview_window("main") else { return };
+        if panel_open || !window.is_visible().unwrap_or(false) {
+            return;
+        }
+        if let Ok(p) = window.outer_position() {
+            if let Err(e) = position::save(&state_path(), (p.x, p.y)) {
+                eprintln!("could not save window position: {e}");
+            }
+        }
+    });
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![set_panel, dismiss_session, jump_to, get_snapshot])
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
             let scale = window.scale_factor()?;
+            // Move to the remembered spot (or the primary's corner) before anything is drawn.
+            let side = (CLOSED_SIZE * scale).round() as i32;
+            let (x, y) = position::restore(position::load(&state_path()), &monitor_rects(&window), (side, side));
+            window.set_position(PhysicalPosition::new(x, y))?;
+            window.on_window_event({
+                let handle = app.handle().clone();
+                move |e| {
+                    if matches!(e, WindowEvent::Moved(_)) {
+                        schedule_position_save(handle.clone());
+                    }
+                }
+            });
             // Window-relative physical pixels: the character circle sits in the middle.
             let region: SharedRegion = Arc::new(Mutex::new(closed_region(scale)));
             app.manage(region.clone());
@@ -142,6 +202,11 @@ fn main() {
             let rules_path = paths::data_dir().join("rules.toml");
             let (rules, rules_warning) = rules::load_or_create(&rules_path);
             let core: SharedCore = Arc::new(Mutex::new(app::Core::new(rules, rules_warning)));
+            // Read-only: a missing or unreadable settings file counts as not connected.
+            let hooks_on = tray::claude_settings_path()
+                .zip(std::env::current_exe().ok().map(|e| tray::hook_path_beside(&e)))
+                .is_some_and(|(settings, hook)| tray::detect_hooks_on(&settings, &hook));
+            lock(&core).set_hooks_on(hooks_on);
             app.manage(core.clone());
 
             // The emit mutex is held across snapshot and emit so an older snapshot can never
@@ -170,9 +235,12 @@ fn main() {
                     publish();
                 })
             };
-            if let Err(e) = started {
-                eprintln!("listener failed to start: {e}");
-                lock(&core).set_connection_warning(Some(HOOKS_WARNING.to_string()));
+            match started {
+                Ok(ep) => eprintln!("listening on 127.0.0.1:{}", ep.port),
+                Err(e) => {
+                    eprintln!("listener failed to start: {e}");
+                    lock(&core).set_connection_warning(Some(HOOKS_WARNING.to_string()));
+                }
             }
 
             // Kept alive for the app's lifetime; dropping it would stop the watch.
@@ -184,7 +252,26 @@ fn main() {
                 })
             };
             app.manage(Mutex::new(watcher));
-            app.manage(queue);
+            app.manage(queue.clone());
+
+            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on)?;
+
+            // Ctrl+Alt+D shows or hides the character. If another app owns the key, say so
+            // in the warning and carry on.
+            {
+                use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+                let result = app.global_shortcut().on_shortcut("ctrl+alt+d", |app, _, event| {
+                    if event.state == ShortcutState::Pressed {
+                        tray::toggle_visible(app);
+                    }
+                });
+                if let Err(e) = result {
+                    eprintln!("hotkey failed to register: {e}");
+                    lock(&core).set_hotkey_warning(Some(HOTKEY_WARNING.to_string()));
+                    publish();
+                }
+            }
+            tray::set_visible(app.handle(), true);
 
             std::thread::spawn({
                 let (core, publish) = (core.clone(), publish.clone());

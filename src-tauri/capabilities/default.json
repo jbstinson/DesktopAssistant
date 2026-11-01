@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Lets the page listen for snapshot events from the app.",
   "windows": ["main"],
-  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "core:window:allow-start-dragging"]
 }

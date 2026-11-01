@@ -67,7 +67,6 @@ pub fn set_bounds(window: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) -> Res
 }
 
 /// While paused the poll thread does no work beyond a slow sleep.
-#[allow(dead_code)]
 pub fn pause(paused: bool) {
     PAUSED.store(paused, Ordering::Relaxed);
 }

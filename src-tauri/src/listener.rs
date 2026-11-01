@@ -7,12 +7,9 @@ use tiny_http::{Method, Request, Response, Server};
 
 const MAX_BODY: u64 = 1024 * 1024;
 
-// Task 10 reads these to write the hook configuration.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Endpoint {
     pub port: u16,
-    pub token: String,
 }
 
 pub fn start(on_event: impl Fn(HookEvent) + Send + 'static) -> std::io::Result<Endpoint> {
@@ -43,7 +40,7 @@ pub fn start_in(
             handle(req, &expected, &on_event);
         }
     });
-    Ok(Endpoint { port, token })
+    Ok(Endpoint { port })
 }
 
 fn new_token() -> std::io::Result<String> {
@@ -148,7 +145,13 @@ mod tests {
         out.split_whitespace().nth(1).unwrap().parse().unwrap()
     }
 
-    fn setup(tag: &str) -> (Endpoint, mpsc::Receiver<HookEvent>, std::path::PathBuf) {
+    /// What a client learns from endpoint.json.
+    struct Ep {
+        port: u16,
+        token: String,
+    }
+
+    fn setup(tag: &str) -> (Ep, mpsc::Receiver<HookEvent>, std::path::PathBuf) {
         let dir = temp_dir(tag);
         let (tx, rx) = mpsc::channel();
         let tx = std::sync::Mutex::new(tx);
@@ -156,7 +159,11 @@ mod tests {
             tx.lock().unwrap().send(e).unwrap();
         })
         .unwrap();
-        (ep, rx, dir)
+        let file: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("endpoint.json")).unwrap()).unwrap();
+        let token = file["token"].as_str().unwrap().to_string();
+        assert_eq!(file["port"], ep.port);
+        (Ep { port: ep.port, token }, rx, dir)
     }
 
     const EV: &[u8] = br#"{"name":"Stop","session_id":"s1","cwd":"C:/x"}"#;
