@@ -5,6 +5,8 @@
 mod events;
 #[allow(dead_code)]
 mod sessions;
+#[allow(dead_code)]
+mod rules;
 mod overlay;
 #[allow(dead_code)]
 mod listener;
