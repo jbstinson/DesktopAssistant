@@ -33,13 +33,20 @@ pub fn classify(tool: &str) -> Kind {
         "Bash" | "PowerShell" => Kind::Command,
         "Edit" | "Write" | "NotebookEdit" => Kind::Edit,
         "WebFetch" | "WebSearch" => Kind::Web,
-        t if t.starts_with("mcp__") => Kind::Mcp,
+        t if t.strip_prefix("mcp__").is_some_and(|r| !r.is_empty()) => Kind::Mcp,
         _ => Kind::HandBack,
     }
 }
 
 /// Accepts exactly one `addRules` suggestion holding exactly one allow rule with real content.
-pub fn vet_suggestion(suggestions: &Value) -> Option<Rule> {
+/// True when the rule has a tool and content with at least one character that is not a wildcard,
+/// path or punctuation filler. Shared by vetting and by `reply`.
+fn rule_is_acceptable(tool: &str, content: &str) -> bool {
+    const FILLER: &[char] = &['*', ':', '/', '\\', '.', '?', '(', ')', '-', '~'];
+    !tool.trim().is_empty() && content.chars().any(|c| !(FILLER.contains(&c) || c.is_whitespace()))
+}
+
+pub fn vet_suggestion(suggestions: &Value, request_tool: &str) -> Option<Rule> {
     let list = suggestions.as_array()?;
     let [entry] = list.as_slice() else { return None };
     if entry.get("type")?.as_str()? != "addRules" || entry.get("behavior")?.as_str()? != "allow" {
@@ -49,7 +56,7 @@ pub fn vet_suggestion(suggestions: &Value) -> Option<Rule> {
     let [rule] = rules.as_slice() else { return None };
     let tool = rule.get("toolName")?.as_str()?;
     let content = rule.get("ruleContent")?.as_str()?;
-    if tool.trim().is_empty() || !content.chars().any(|c| !(c == '*' || c == ':' || c.is_whitespace())) {
+    if tool != request_tool || !rule_is_acceptable(tool, content) {
         return None;
     }
     let destination = entry.get("destination").and_then(Value::as_str).unwrap_or("");
@@ -71,8 +78,8 @@ pub fn reply(choice: Choice, rule: Option<&Rule>) -> Option<Value> {
         Choice::Release => None,
         Choice::Deny => Some(wrap(json!({"behavior":"deny","message":"Denied in DesktopAssistant"}))),
         Choice::AllowOnce => Some(wrap(json!({"behavior":"allow"}))),
-        Choice::AllowSession => rule.map(|r| with_rule(r, "session")),
-        Choice::AlwaysAllow => rule.map(|r| with_rule(r, "localSettings")),
+        Choice::AllowSession => rule.filter(|r| rule_is_acceptable(&r.tool, &r.content)).map(|r| with_rule(r, "session")),
+        Choice::AlwaysAllow => rule.filter(|r| rule_is_acceptable(&r.tool, &r.content)).map(|r| with_rule(r, "localSettings")),
     }
 }
 
@@ -95,6 +102,8 @@ mod tests {
         Rule { tool: "Bash".into(), content: content.into(), destination: "localSettings".into() }
     }
 
+    fn vet(s: &Value) -> Option<Rule> { vet_suggestion(s, "Bash") }
+
     fn sugg(content: Value) -> Value {
         json!([{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":content}],"behavior":"allow","destination":"localSettings"}])
     }
@@ -105,44 +114,72 @@ mod tests {
         for t in ["Edit", "Write", "NotebookEdit"] { assert_eq!(classify(t), Kind::Edit, "{t}"); }
         for t in ["WebFetch", "WebSearch"] { assert_eq!(classify(t), Kind::Web, "{t}"); }
         assert_eq!(classify("mcp__x__y"), Kind::Mcp);
+        assert_eq!(classify("mcp__"), Kind::HandBack);
         for t in ["AskUserQuestion", "ExitPlanMode", "Mystery", ""] { assert_eq!(classify(t), Kind::HandBack, "{t}"); }
     }
 
     #[test]
     fn vet_accepts_one_allow_rule() {
-        let r = vet_suggestion(&sugg(json!("node -e \"x\""))).unwrap();
+        let r = vet(&sugg(json!("node -e \"x\""))).unwrap();
         assert_eq!(r, Rule { tool: "Bash".into(), content: "node -e \"x\"".into(), destination: "localSettings".into() });
-        assert!(vet_suggestion(&sugg(json!("node *"))).is_some());
+        assert!(vet(&sugg(json!("node *"))).is_some());
     }
 
     #[test]
     fn vet_rejects_bad_shapes() {
-        assert!(vet_suggestion(&json!(null)).is_none());
-        assert!(vet_suggestion(&json!({})).is_none());
-        assert!(vet_suggestion(&json!("x")).is_none());
-        assert!(vet_suggestion(&json!([])).is_none());
+        assert!(vet(&json!(null)).is_none());
+        assert!(vet(&json!({})).is_none());
+        assert!(vet(&json!("x")).is_none());
+        assert!(vet(&json!([])).is_none());
         let one = sugg(json!("ls"))[0].clone();
-        assert!(vet_suggestion(&json!([one.clone(), one.clone()])).is_none());
+        assert!(vet(&json!([one.clone(), one.clone()])).is_none());
         let mut wrong = one.clone(); wrong["type"] = json!("setMode");
-        assert!(vet_suggestion(&json!([wrong])).is_none());
+        assert!(vet(&json!([wrong])).is_none());
         let mut deny = one.clone(); deny["behavior"] = json!("deny");
-        assert!(vet_suggestion(&json!([deny])).is_none());
+        assert!(vet(&json!([deny])).is_none());
         let mut two = one.clone(); two["rules"] = json!([{"toolName":"Bash","ruleContent":"a"},{"toolName":"Bash","ruleContent":"b"}]);
-        assert!(vet_suggestion(&json!([two])).is_none());
+        assert!(vet(&json!([two])).is_none());
         let mut norules = one.clone(); norules["rules"] = json!([]);
-        assert!(vet_suggestion(&json!([norules])).is_none());
+        assert!(vet(&json!([norules])).is_none());
         let mut nocontent = one.clone(); nocontent["rules"] = json!([{"toolName":"Bash"}]);
-        assert!(vet_suggestion(&json!([nocontent])).is_none());
+        assert!(vet(&json!([nocontent])).is_none());
         let mut notool = one.clone(); notool["rules"] = json!([{"ruleContent":"ls"}]);
-        assert!(vet_suggestion(&json!([notool])).is_none());
+        assert!(vet(&json!([notool])).is_none());
     }
 
     #[test]
     fn vet_rejects_empty_and_wildcard_only_content() {
-        for c in ["", " ", "*", "**", ":*", " * ", "* *", "*:*", "\t:*\n"] {
-            assert!(vet_suggestion(&sugg(json!(c))).is_none(), "{c:?}");
+        for c in ["", " ", "*", "**", ":*", " * ", "* *", "*:*", "\t:*\n", "**/*", "/**", ".*", "?*", "(*)", "-*", "~/*", "\\*"] {
+            assert!(vet(&sugg(json!(c))).is_none(), "{c:?}");
         }
-        assert!(vet_suggestion(&sugg(json!(5))).is_none());
+        assert!(vet(&sugg(json!(5))).is_none());
+    }
+
+    #[test]
+    fn vet_keeps_real_commands() {
+        for c in ["node *", "npm run test:*", "git status", "./run.sh *"] {
+            assert!(vet(&sugg(json!(c))).is_some(), "{c:?}");
+        }
+    }
+
+    #[test]
+    fn vet_requires_tool_to_match_request() {
+        let s = sugg(json!("node *"));
+        assert!(vet_suggestion(&s, "Bash").is_some());
+        assert!(vet_suggestion(&s, "PowerShell").is_none());
+        assert!(vet_suggestion(&s, "bash").is_none());
+        assert!(vet_suggestion(&s, "").is_none());
+    }
+
+    #[test]
+    fn reply_rejects_unvetted_rule_content() {
+        for c in ["*", "**/*", ""] {
+            let bad = rule(c);
+            assert!(reply(Choice::AllowSession, Some(&bad)).is_none(), "{c:?}");
+            assert!(reply(Choice::AlwaysAllow, Some(&bad)).is_none(), "{c:?}");
+        }
+        let mut notool = rule("node *"); notool.tool = " ".into();
+        assert!(reply(Choice::AllowSession, Some(&notool)).is_none());
     }
 
     #[test]
