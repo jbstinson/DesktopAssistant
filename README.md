@@ -118,7 +118,7 @@ then = { tier = "good_to_know", sound = "bell", speak = "{project} is done" }
 
 ## Verification results (Stage 1)
 
-Run on Windows 11 with Claude Code 2.1.316. The app ran against a temporary APPDATA, never the real settings. Full details are in `.superpowers/sdd/2026-11-01-stage-1-alerts/task-12-report.md`.
+Run on Windows 11 with Claude Code 2.1.316. The app ran against a temporary APPDATA, never the real settings.
 
 Checked and passing:
 
