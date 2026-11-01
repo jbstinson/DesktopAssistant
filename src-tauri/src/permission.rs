@@ -12,13 +12,22 @@ pub enum Kind {
     HandBack,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Rule {
     pub tool: String,
     pub content: String,
     pub destination: String,
 }
 
+/// The content comes from the request's input, so Debug output leaves it out.
+impl std::fmt::Debug for Rule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Rule").field("tool", &self.tool).finish_non_exhaustive()
+    }
+}
+
+// The panel command builds the answers in Task 5.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Choice {
     Deny,
@@ -63,6 +72,8 @@ pub fn vet_suggestion(suggestions: &Value, request_tool: &str) -> Option<Rule> {
     Some(Rule { tool: tool.to_string(), content: content.to_string(), destination: destination.to_string() })
 }
 
+// The panel shows this in Task 5.
+#[allow(dead_code)]
 pub fn is_broad(rule: &Rule) -> bool {
     rule.content.trim_end().ends_with('*')
 }
@@ -83,6 +94,8 @@ pub fn reply(choice: Choice, rule: Option<&Rule>) -> Option<Value> {
     }
 }
 
+// The panel shows this in Task 5.
+#[allow(dead_code)]
 pub fn describe_rule(rule: &Rule) -> String {
     let base = format!("{}: {}", rule.tool, rule.content);
     if !is_broad(rule) {
@@ -180,6 +193,13 @@ mod tests {
         }
         let mut notool = rule("node *"); notool.tool = " ".into();
         assert!(reply(Choice::AllowSession, Some(&notool)).is_none());
+    }
+
+    #[test]
+    fn debug_output_hides_rule_content() {
+        let text = format!("{:?}", rule("node secret.js"));
+        assert!(text.contains("Bash"), "{text}");
+        assert!(!text.contains("secret"), "{text}");
     }
 
     #[test]

@@ -9,7 +9,10 @@ const LOCK_MS: u64 = 1000;
 /// A request nobody polls for this long is dropped (the hook has gone away).
 const LOST_POLL_MS: u64 = 3000;
 
-#[derive(Debug, Clone)]
+/// Holds the tool's input, so this type deliberately has no Debug.
+// The panel reads the remaining fields in Task 5.
+#[allow(dead_code)]
+#[derive(Clone)]
 pub struct Request {
     pub id: String,
     pub session_id: String,
@@ -145,6 +148,11 @@ impl Pending {
 
     pub fn current(&self) -> Option<&Request> {
         self.entries.iter().find(|e| e.decided.is_none()).map(|e| &e.req)
+    }
+
+    /// The stored rule of a request, decided or not.
+    pub fn rule_of(&self, id: &str) -> Option<&Rule> {
+        self.entries.iter().find(|e| e.req.id == id).and_then(|e| e.req.rule.as_ref())
     }
 
     pub fn count(&self) -> usize {
@@ -453,6 +461,18 @@ mod tests {
         assert!(p.answer("b", Choice::AlwaysAllow, 3000).is_ok());
         p.open(with_rule("c"), 3000);
         assert!(p.answer("c", Choice::AllowSession, 4000).is_ok());
+    }
+
+    #[test]
+    fn rule_of_finds_decided_requests_too() {
+        let mut p = Pending::new(120);
+        p.open(with_rule("a"), 0);
+        p.open(req("b"), 0);
+        assert_eq!(p.rule_of("a").unwrap().content, "node *");
+        assert!(p.rule_of("b").is_none());
+        assert!(p.rule_of("zzz").is_none());
+        p.answer("a", Choice::AlwaysAllow, 1000).unwrap();
+        assert_eq!(p.rule_of("a").unwrap().content, "node *");
     }
 
     #[test]

@@ -7,11 +7,7 @@ mod jump;
 mod listener;
 mod overlay;
 mod paths;
-// Consumed by the approval wiring in Task 4; remove this allow then.
-#[allow(dead_code)]
 mod pending;
-// Consumed by the approval wiring in Task 4; remove this allow then.
-#[allow(dead_code)]
 mod permission;
 mod position;
 mod rules;
@@ -30,6 +26,8 @@ use tauri::{Emitter, Manager, PhysicalPosition, State, WebviewWindow, WindowEven
 
 /// How often silent sessions are expired.
 const TICK: Duration = Duration::from_secs(30);
+/// How often held permission requests are checked for expiry.
+const PERMISSION_TICK: Duration = Duration::from_secs(1);
 
 const HOTKEY_WARNING: &str = "The Ctrl+Alt+D hotkey is taken by another app";
 const HOOKS_WARNING: &str = "Hooks cannot connect: the local listener failed to start";
@@ -66,6 +64,10 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 /// Opens or closes the panel by resizing the single window. The robot keeps its screen
@@ -253,16 +255,41 @@ fn main() {
             let choice: voice::Choice = Arc::new(Mutex::new(voice::resolve(voice::load(&voice_path), &voices)));
             let queue = Arc::new(delivery::Queue::new(delivery::WindowsOutput { voice: choice.clone() }));
 
-            let started = {
-                let (core, queue, publish) = (core.clone(), queue.clone(), publish.clone());
-                listener::start(move |event| {
-                    let alert = lock(&core).handle(event, now_secs());
-                    if let Some(alert) = alert {
-                        queue.push(alert);
+            // Every route releases the core lock before delivering or emitting.
+            let routes = listener::Routes {
+                event: Box::new({
+                    let (core, queue, publish) = (core.clone(), queue.clone(), publish.clone());
+                    move |event| {
+                        let alert = lock(&core).handle(event, now_secs());
+                        if let Some(alert) = alert {
+                            queue.push(alert);
+                        }
+                        publish();
                     }
-                    publish();
-                })
+                }),
+                open: Box::new({
+                    let (core, queue, publish) = (core.clone(), queue.clone(), publish.clone());
+                    move |ask| {
+                        let opened = lock(&core).open_permission(ask, now_ms());
+                        if let Some(alert) = opened.alert {
+                            queue.push(alert);
+                        }
+                        publish();
+                        (opened.id, opened.hold)
+                    }
+                }),
+                poll: Box::new({
+                    let (core, publish) = (core.clone(), publish.clone());
+                    move |id| {
+                        let (polled, changed) = lock(&core).poll_permission(id, now_ms());
+                        if changed {
+                            publish();
+                        }
+                        polled
+                    }
+                }),
             };
+            let started = listener::start(routes);
             match started {
                 Ok(ep) => eprintln!("listening on 127.0.0.1:{}", ep.port),
                 Err(e) => {
@@ -307,6 +334,16 @@ fn main() {
                 move || loop {
                     std::thread::sleep(TICK);
                     let changed = lock(&core).tick(now_secs());
+                    if changed {
+                        publish();
+                    }
+                }
+            });
+            std::thread::spawn({
+                let (core, publish) = (core.clone(), publish.clone());
+                move || loop {
+                    std::thread::sleep(PERMISSION_TICK);
+                    let changed = lock(&core).tick_permissions(now_ms());
                     if changed {
                         publish();
                     }

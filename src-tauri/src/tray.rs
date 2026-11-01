@@ -39,9 +39,10 @@ pub fn hook_path_beside(exe: &Path) -> PathBuf {
 /// How our hooks stand in Claude Code's settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HookStatus {
-    /// All nine events point at this hook exe.
+    /// All nine events point at this hook exe with the right timeouts.
     pub on: bool,
-    /// Entries of ours exist but not all point here (the exe moved): Connect repairs them.
+    /// Entries of ours exist but not all are current (the exe moved, or a timeout is old):
+    /// Connect repairs them.
     pub stale: bool,
 }
 
@@ -138,6 +139,9 @@ fn show_window(window: &tauri::WebviewWindow, cmd: i32) {
 /// so it can stop its animations. Showing never activates the window.
 pub fn set_visible(app: &AppHandle, visible: bool) {
     let Some(window) = app.get_webview_window("main") else { return };
+    if let Some(core) = app.try_state::<Core>() {
+        lock(&core).set_visible(visible);
+    }
     if visible {
         overlay::pause(false);
         show_window(&window, SW_SHOWNOACTIVATE);

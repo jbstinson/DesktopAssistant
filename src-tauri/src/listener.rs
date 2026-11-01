@@ -1,9 +1,10 @@
 //! Localhost listener receiving hook events from da-hook.
 
-use crate::events::HookEvent;
+use crate::events::{HookEvent, PermissionAsk, Polled};
 use std::io::Read;
 use std::path::Path;
-use tiny_http::{Method, Request, Response, Server};
+use serde::de::DeserializeOwned;
+use tiny_http::{Header, Method, Request, Response, Server};
 
 const MAX_BODY: u64 = 1024 * 1024;
 
@@ -12,14 +13,20 @@ pub struct Endpoint {
     pub port: u16,
 }
 
-pub fn start(on_event: impl Fn(HookEvent) + Send + 'static) -> std::io::Result<Endpoint> {
-    start_in(&crate::paths::data_dir(), on_event)
+/// What each route does. All three run on the one listener thread, so each must return fast
+/// and none may wait for a decision.
+pub struct Routes {
+    pub event: Box<dyn Fn(HookEvent) + Send>,
+    /// Returns the request id and whether the request is being held.
+    pub open: Box<dyn Fn(PermissionAsk) -> (String, bool) + Send>,
+    pub poll: Box<dyn Fn(&str) -> Polled + Send>,
 }
 
-pub fn start_in(
-    dir: &Path,
-    on_event: impl Fn(HookEvent) + Send + 'static,
-) -> std::io::Result<Endpoint> {
+pub fn start(routes: Routes) -> std::io::Result<Endpoint> {
+    start_in(&crate::paths::data_dir(), routes)
+}
+
+pub fn start_in(dir: &Path, routes: Routes) -> std::io::Result<Endpoint> {
     std::fs::create_dir_all(dir)?;
     let server = Server::http("127.0.0.1:0").map_err(std::io::Error::other)?;
     let port = server
@@ -37,7 +44,7 @@ pub fn start_in(
     let expected = format!("Bearer {token}");
     std::thread::spawn(move || {
         for req in server.incoming_requests() {
-            handle(req, &expected, &on_event);
+            handle(req, &expected, &routes);
         }
     });
     Ok(Endpoint { port })
@@ -62,11 +69,48 @@ fn respond(req: Request, code: u16) {
     let _ = req.respond(Response::empty(code));
 }
 
-fn handle(mut req: Request, expected: &str, on_event: &dyn Fn(HookEvent)) {
-    if req.url() != "/event" {
-        return respond(req, 404);
+fn respond_json(req: Request, code: u16, body: String) {
+    let header = Header::from_bytes("Content-Type", "application/json")
+        .expect("a fixed header is valid");
+    let _ = req.respond(Response::from_string(body).with_status_code(code).with_header(header));
+}
+
+/// Reads a JSON body of at most `MAX_BODY` bytes, or gives the status to refuse it with.
+fn read_json<T: DeserializeOwned>(req: &mut Request) -> Result<T, u16> {
+    if req.body_length().is_some_and(|n| n as u64 > MAX_BODY) {
+        return Err(413);
     }
-    if *req.method() != Method::Post {
+    let mut body = Vec::new();
+    if req
+        .as_reader()
+        .take(MAX_BODY + 1)
+        .read_to_end(&mut body)
+        .is_err()
+    {
+        return Err(400);
+    }
+    if body.len() as u64 > MAX_BODY {
+        return Err(413);
+    }
+    serde_json::from_slice(&body).map_err(|_| 400)
+}
+
+enum Route {
+    Event,
+    Open,
+    Poll(String),
+}
+
+fn handle(mut req: Request, expected: &str, routes: &Routes) {
+    let (route, method) = match req.url() {
+        "/event" => (Route::Event, Method::Post),
+        "/permission" => (Route::Open, Method::Post),
+        url => match url.strip_prefix("/permission/") {
+            Some(id) => (Route::Poll(id.to_string()), Method::Get),
+            None => return respond(req, 404),
+        },
+    };
+    if *req.method() != method {
         return respond(req, 405);
     }
     let auth = req
@@ -78,27 +122,26 @@ fn handle(mut req: Request, expected: &str, on_event: &dyn Fn(HookEvent)) {
     if !ct_eq(auth.as_bytes(), expected.as_bytes()) {
         return respond(req, 401);
     }
-    if req.body_length().is_some_and(|n| n as u64 > MAX_BODY) {
-        return respond(req, 413);
-    }
-    let mut body = Vec::new();
-    if req
-        .as_reader()
-        .take(MAX_BODY + 1)
-        .read_to_end(&mut body)
-        .is_err()
-    {
-        return respond(req, 400);
-    }
-    if body.len() as u64 > MAX_BODY {
-        return respond(req, 413);
-    }
-    match serde_json::from_slice::<HookEvent>(&body) {
-        Ok(ev) => {
-            on_event(ev);
-            respond(req, 204);
-        }
-        Err(_) => respond(req, 400),
+    match route {
+        Route::Event => match read_json::<HookEvent>(&mut req) {
+            Ok(ev) => {
+                (routes.event)(ev);
+                respond(req, 204);
+            }
+            Err(code) => respond(req, code),
+        },
+        Route::Open => match read_json::<PermissionAsk>(&mut req) {
+            Ok(ask) => {
+                let (id, hold) = (routes.open)(ask);
+                respond_json(req, 200, serde_json::json!({ "id": id, "hold": hold }).to_string());
+            }
+            Err(code) => respond(req, code),
+        },
+        Route::Poll(id) => match (routes.poll)(&id) {
+            Polled::Waiting => respond(req, 204),
+            Polled::Reply(reply) => respond_json(req, 200, reply),
+            Polled::Gone => respond(req, 410),
+        },
     }
 }
 
@@ -145,6 +188,24 @@ mod tests {
         out.split_whitespace().nth(1).unwrap().parse().unwrap()
     }
 
+    /// Status and body of a request that gets its whole answer read.
+    fn fetch(port: u16, method: &str, path: &str, token: Option<&str>, body: &[u8]) -> (u16, String) {
+        let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let auth = token.map_or(String::new(), |t| format!("Authorization: Bearer {t}\r\n"));
+        let head = format!(
+            "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n{auth}\r\n",
+            body.len()
+        );
+        s.write_all(head.as_bytes()).unwrap();
+        s.write_all(body).unwrap();
+        let mut out = String::new();
+        let _ = s.read_to_string(&mut out);
+        let code = out.split_whitespace().nth(1).unwrap().parse().unwrap();
+        let text = out.split_once("\r\n\r\n").map_or("", |(_, b)| b).to_string();
+        (code, text)
+    }
+
     /// What a client learns from endpoint.json.
     struct Ep {
         port: u16,
@@ -155,10 +216,12 @@ mod tests {
         let dir = temp_dir(tag);
         let (tx, rx) = mpsc::channel();
         let tx = std::sync::Mutex::new(tx);
-        let ep = start_in(&dir, move |e| {
-            tx.lock().unwrap().send(e).unwrap();
-        })
-        .unwrap();
+        let routes = Routes {
+            event: Box::new(move |e| tx.lock().unwrap().send(e).unwrap()),
+            open: Box::new(|_| (String::new(), false)),
+            poll: Box::new(|_| Polled::Gone),
+        };
+        let ep = start_in(&dir, routes).unwrap();
         let file: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join("endpoint.json")).unwrap()).unwrap();
         let token = file["token"].as_str().unwrap().to_string();
@@ -167,6 +230,100 @@ mod tests {
     }
 
     const EV: &[u8] = br#"{"name":"Stop","session_id":"s1","cwd":"C:/x"}"#;
+
+    /// A listener whose poll route gives `polled`, and which reports every ask and poll id.
+    fn setup_permission(
+        tag: &str,
+        polled: Polled,
+    ) -> (Ep, mpsc::Receiver<PermissionAsk>, mpsc::Receiver<String>) {
+        let (asks, ask_rx) = mpsc::channel();
+        let (polls, poll_rx) = mpsc::channel();
+        let (asks, polls) = (std::sync::Mutex::new(asks), std::sync::Mutex::new(polls));
+        let dir = temp_dir(tag);
+        let ep = start_in(
+            &dir,
+            Routes {
+                event: Box::new(|_| {}),
+                open: Box::new(move |a| {
+                    asks.lock().unwrap().send(a).unwrap();
+                    ("ab12".to_string(), true)
+                }),
+                poll: Box::new(move |id| {
+                    let _ = polls.lock().unwrap().send(id.to_string());
+                    polled.clone()
+                }),
+            },
+        )
+        .unwrap();
+        let file: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("endpoint.json")).unwrap()).unwrap();
+        (Ep { port: ep.port, token: file["token"].as_str().unwrap().to_string() }, ask_rx, poll_rx)
+    }
+
+    const ASK: &[u8] = br#"{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"ls"}}"#;
+
+    #[test]
+    fn open_returns_id_and_hold_and_passes_the_ask_on() {
+        let (ep, asks, _) = setup_permission("open", Polled::Waiting);
+        let (code, body) = fetch(ep.port, "POST", "/permission", Some(&ep.token), ASK);
+        assert_eq!(code, 200);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"id": "ab12", "hold": true})
+        );
+        let a = asks.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(a.tool_input["command"], "ls");
+        assert!(asks.try_recv().is_err());
+    }
+
+    #[test]
+    fn poll_maps_to_204_200_and_410() {
+        let (ep, _, polls) = setup_permission("wait", Polled::Waiting);
+        let got = fetch(ep.port, "GET", "/permission/ab12", Some(&ep.token), b"");
+        assert_eq!(got, (204, String::new()));
+        assert_eq!(polls.recv_timeout(Duration::from_secs(2)).unwrap(), "ab12");
+
+        let reply = r#"{"verbatim": [1,  2]}"#;
+        let (ep, _, _) = setup_permission("reply", Polled::Reply(reply.to_string()));
+        let got = fetch(ep.port, "GET", "/permission/ab12", Some(&ep.token), b"");
+        assert_eq!(got, (200, reply.to_string()));
+
+        let (ep, _, _) = setup_permission("gone", Polled::Gone);
+        assert_eq!(fetch(ep.port, "GET", "/permission/ab12", Some(&ep.token), b"").0, 410);
+    }
+
+    #[test]
+    fn permission_routes_need_the_token() {
+        let (ep, asks, polls) = setup_permission("perm-auth", Polled::Reply("{}".into()));
+        for token in [Some("nope"), None] {
+            assert_eq!(request(ep.port, "POST", "/permission", token, ASK), 401);
+            assert_eq!(fetch(ep.port, "GET", "/permission/ab12", token, b""), (401, String::new()));
+        }
+        assert!(asks.try_recv().is_err());
+        assert!(polls.try_recv().is_err());
+    }
+
+    #[test]
+    fn oversized_ask_returns_413_without_call() {
+        let (ep, asks, _) = setup_permission("perm-big", Polled::Gone);
+        let body = vec![b' '; 1024 * 1024 + 1];
+        assert_eq!(request(ep.port, "POST", "/permission", Some(&ep.token), &body), 413);
+        assert!(asks.try_recv().is_err());
+    }
+
+    #[test]
+    fn bad_asks_and_wrong_routes_are_refused() {
+        let (ep, asks, polls) = setup_permission("perm-bad", Polled::Gone);
+        let t = Some(ep.token.as_str());
+        assert_eq!(request(ep.port, "POST", "/permission", t, b"{nope"), 400);
+        assert_eq!(request(ep.port, "POST", "/permission", t, br#"{"tool_name":7}"#), 400);
+        assert_eq!(request(ep.port, "GET", "/permission", t, b""), 405);
+        assert_eq!(request(ep.port, "POST", "/permission/ab12", t, b""), 405);
+        assert_eq!(request(ep.port, "GET", "/nope", t, b""), 404);
+        assert_eq!(request(ep.port, "GET", "/permissions/ab12", t, b""), 404);
+        assert!(asks.try_recv().is_err());
+        assert!(polls.try_recv().is_err());
+    }
 
     #[test]
     fn valid_token_returns_204_and_calls_once() {

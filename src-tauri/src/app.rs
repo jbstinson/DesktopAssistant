@@ -1,8 +1,10 @@
 //! The app's core: sessions plus rules, with no Tauri types. `main.rs` wraps it in a
 //! mutex and feeds it events, rule reloads and timer ticks.
 
-use crate::events::HookEvent;
+use crate::events::{HookEvent, PermissionAsk, Polled};
 use crate::jump;
+use crate::pending::{Pending, Poll, Request};
+use crate::permission::{self, Choice, Kind};
 use crate::rules::{Alert, RuleSet, Tier};
 use crate::sessions::{Activity, Sessions};
 use serde::Serialize;
@@ -31,8 +33,26 @@ pub struct Snapshot {
     pub hooks_on: bool,
 }
 
+/// Hold time in seconds. The hook gives up at 128, so the longest hold ends first.
+const HOLD_DEFAULT_SECS: u64 = 120;
+const HOLD_MIN_SECS: u64 = 10;
+const HOLD_MAX_SECS: u64 = 125;
+/// Requests past this many are handed straight back.
+const MAX_WAITING: usize = 64;
+
+/// The result of opening a permission request.
+pub struct Opened {
+    pub id: String,
+    /// False hands the request straight back to Claude Code.
+    pub hold: bool,
+    pub alert: Option<Alert>,
+}
+
 pub struct Core {
     sessions: Sessions,
+    pending: Pending,
+    visible: bool,
+    approve_in_window: bool,
     rules: RuleSet,
     rules_warning: Option<String>,
     connection_warning: Option<String>,
@@ -58,10 +78,20 @@ fn state_name(a: Activity) -> &'static str {
     }
 }
 
+/// 16 random bytes as hex, or None if the system cannot supply them.
+fn new_id() -> Option<String> {
+    let mut bytes = [0u8; 16];
+    getrandom::getrandom(&mut bytes).ok()?;
+    Some(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
 impl Core {
     pub fn new(rules: RuleSet, rules_warning: Option<String>) -> Core {
         Core {
             sessions: Sessions::new(),
+            pending: Pending::new(HOLD_DEFAULT_SECS),
+            visible: true,
+            approve_in_window: true,
             rules,
             rules_warning,
             connection_warning: None,
@@ -80,6 +110,91 @@ impl Core {
         let project = self.sessions.project_of(&e.session_id).or(before).unwrap_or_default();
         let alert = self.rules.evaluate(&e, &applied, &project);
         (alert.tier != Tier::Silent).then_some(alert)
+    }
+
+    /// Applies the session event and alert for a permission request, then holds the request
+    /// if it can be answered here. Anything else hands it straight back.
+    pub fn open_permission(&mut self, ask: PermissionAsk, now_ms: u64) -> Opened {
+        let alert = self.handle(ask.to_event(), now_ms / 1000);
+        self.pending.tick(now_ms);
+        let kind = permission::classify(&ask.tool_name);
+        let can_hold = kind != Kind::HandBack
+            && self.visible
+            && self.approve_in_window
+            && !self.quiet
+            && self.pending.count() < MAX_WAITING;
+        let id = new_id();
+        let hold = match &id {
+            Some(id) if can_hold => {
+                let rule = permission::vet_suggestion(&ask.permission_suggestions, &ask.tool_name);
+                let project = self.sessions.project_of(&ask.session_id).unwrap_or_default();
+                let request = Request {
+                    id: id.clone(),
+                    session_id: ask.session_id,
+                    project,
+                    tool: ask.tool_name,
+                    kind,
+                    input: ask.tool_input,
+                    description: ask.description,
+                    rule,
+                };
+                self.pending.open(request, now_ms)
+            }
+            _ => false,
+        };
+        Opened { id: id.unwrap_or_default(), hold, alert }
+    }
+
+    /// What the hook should do next, and whether anything changed for the snapshot.
+    pub fn poll_permission(&mut self, id: &str, now_ms: u64) -> (Polled, bool) {
+        let before = self.pending.count();
+        let ticked = self.pending.tick(now_ms);
+        // Polling a decided request removes it, so its rule is read first.
+        let rule = self.pending.rule_of(id).cloned();
+        let polled = match self.pending.poll(id, now_ms) {
+            Poll::Waiting => Polled::Waiting,
+            Poll::Gone => Polled::Gone,
+            Poll::Decided(choice) => permission::reply(choice, rule.as_ref())
+                .map_or(Polled::Gone, |reply| Polled::Reply(reply.to_string())),
+        };
+        (polled, ticked || self.pending.count() != before)
+    }
+
+    /// The only way to a decision. Reached by a panel click and nothing else.
+    // The panel command calling this arrives in Task 5.
+    #[allow(dead_code)]
+    pub fn answer_permission(&mut self, id: &str, choice: Choice, now_ms: u64) -> Result<(), String> {
+        self.pending.answer(id, choice, now_ms)
+    }
+
+    /// Drops lost and expired requests. Returns whether anything changed.
+    pub fn tick_permissions(&mut self, now_ms: u64) -> bool {
+        self.pending.tick(now_ms)
+    }
+
+    /// Hiding hands every held request back.
+    pub fn set_visible(&mut self, visible: bool) {
+        self.visible = visible;
+        if !visible {
+            self.pending.release_all();
+        }
+    }
+
+    /// Turning the switch off hands every held request back.
+    // The tray switch calling this arrives in Task 6.
+    #[allow(dead_code)]
+    pub fn set_approve_in_window(&mut self, on: bool) {
+        self.approve_in_window = on;
+        if !on {
+            self.pending.release_all();
+        }
+    }
+
+    /// Applies to requests opened afterwards.
+    // The saved setting calling this arrives in Task 6.
+    #[allow(dead_code)]
+    pub fn set_hold(&mut self, secs: u64) {
+        self.pending.set_hold(secs.clamp(HOLD_MIN_SECS, HOLD_MAX_SECS));
     }
 
     /// `Ok` replaces the rules and clears the rules warning; `Err` keeps the last good
@@ -102,9 +217,13 @@ impl Core {
         self.hotkey_warning = warning;
     }
 
-    /// Do-not-disturb. Only the mirrored flag lives here; the sound queue is muted separately.
+    /// Do-not-disturb. The sound queue is muted separately. Turning it on hands every held
+    /// request back.
     pub fn set_quiet(&mut self, quiet: bool) {
         self.quiet = quiet;
+        if quiet {
+            self.pending.release_all();
+        }
     }
 
     pub fn set_hooks_status(&mut self, status: crate::tray::HookStatus) {
@@ -395,6 +514,272 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         let s = core.snapshot();
         assert!(s.hooks_on);
         assert_eq!(s.warning, None);
+    }
+
+    use crate::events::{PermissionAsk, Polled};
+    use crate::permission::{self, Choice, Rule};
+
+    fn ask(sid: &str, tool: &str) -> PermissionAsk {
+        PermissionAsk {
+            session_id: sid.into(),
+            cwd: r"C:\git\proj".into(),
+            source: "cli".into(),
+            agent_id: None,
+            terminal_pid: Some(7),
+            tool_name: tool.into(),
+            tool_input: serde_json::json!({"command": "node -v"}),
+            permission_suggestions: serde_json::Value::Null,
+            description: Some("Show version".into()),
+        }
+    }
+
+    fn with_rule(sid: &str) -> PermissionAsk {
+        let mut a = ask(sid, "Bash");
+        // The same shape as a suggestion, from the one place allowed to spell it out.
+        let rule = Rule { tool: "Bash".into(), content: "node *".into(), destination: String::new() };
+        let reply = permission::reply(Choice::AlwaysAllow, Some(&rule)).unwrap();
+        a.permission_suggestions = reply["hookSpecificOutput"]["decision"]["updatedPermissions"].clone();
+        a
+    }
+
+    /// Polls every 2 seconds from `from` up to and not including `to`, all still waiting.
+    fn keep_polling(core: &mut Core, id: &str, from: u64, to: u64) {
+        for t in (from..to).step_by(2000) {
+            assert_eq!(core.poll_permission(id, t).0, Polled::Waiting, "at {t}");
+        }
+    }
+
+    #[test]
+    fn hold_is_on_by_default_and_ids_are_random_hex() {
+        let mut core = Core::new(defaults(), None);
+        let a = core.open_permission(ask("a", "Bash"), 0);
+        let b = core.open_permission(ask("b", "Bash"), 0);
+        assert!(a.hold && b.hold);
+        assert_ne!(a.id, b.id);
+        for o in [&a, &b] {
+            assert_eq!(o.id.len(), 32);
+            assert!(o.id.bytes().all(|c| c.is_ascii_hexdigit()), "{}", o.id);
+        }
+        assert_eq!(core.poll_permission(&a.id, 100).0, Polled::Waiting);
+    }
+
+    #[test]
+    fn tools_handled_elsewhere_are_handed_back() {
+        let mut core = Core::new(defaults(), None);
+        for tool in ["AskUserQuestion", "ExitPlanMode", "Mystery", "", "mcp__"] {
+            let o = core.open_permission(ask("a", tool), 0);
+            assert!(!o.hold, "{tool}");
+            assert_eq!(core.poll_permission(&o.id, 1).0, Polled::Gone, "{tool}");
+        }
+        for tool in ["Bash", "PowerShell", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "mcp__x__y"] {
+            assert!(core.open_permission(ask("a", tool), 0).hold, "{tool}");
+        }
+    }
+
+    #[test]
+    fn hidden_quiet_or_switch_off_hand_back_but_still_alert_and_wait() {
+        let setups: [fn(&mut Core); 3] =
+            [|c| c.set_visible(false), |c| c.set_quiet(true), |c| c.set_approve_in_window(false)];
+        for setup in setups {
+            let mut core = Core::new(defaults(), None);
+            setup(&mut core);
+            let o = core.open_permission(ask("a", "Bash"), 0);
+            assert!(!o.hold);
+            assert_eq!(core.poll_permission(&o.id, 1).0, Polled::Gone);
+            assert_eq!(o.alert.unwrap().speak.as_deref(), Some("proj needs you"));
+            assert_eq!(core.snapshot().waiting, 1);
+        }
+    }
+
+    #[test]
+    fn turning_any_of_the_three_off_releases_held_requests() {
+        let turn_off: [fn(&mut Core); 3] =
+            [|c| c.set_visible(false), |c| c.set_quiet(true), |c| c.set_approve_in_window(false)];
+        let turn_on: [fn(&mut Core); 3] =
+            [|c| c.set_visible(true), |c| c.set_quiet(false), |c| c.set_approve_in_window(true)];
+        for (off, on) in turn_off.into_iter().zip(turn_on) {
+            let mut core = Core::new(defaults(), None);
+            let a = core.open_permission(ask("a", "Bash"), 0);
+            let b = core.open_permission(ask("b", "Bash"), 0);
+            off(&mut core);
+            on(&mut core);
+            // Coming back on approves nothing and holds nothing old.
+            assert_eq!(core.poll_permission(&a.id, 100).0, Polled::Gone);
+            assert_eq!(core.poll_permission(&b.id, 100).0, Polled::Gone);
+            assert!(core.answer_permission(&a.id, Choice::AllowOnce, 5000).is_err());
+            assert!(core.open_permission(ask("c", "Bash"), 200).hold);
+        }
+    }
+
+    #[test]
+    fn turning_quiet_off_or_showing_releases_nothing() {
+        let mut core = Core::new(defaults(), None);
+        let a = core.open_permission(ask("a", "Bash"), 0);
+        core.set_quiet(false);
+        core.set_visible(true);
+        core.set_approve_in_window(true);
+        assert_eq!(core.poll_permission(&a.id, 100).0, Polled::Waiting);
+    }
+
+    #[test]
+    fn more_than_64_waiting_are_handed_back() {
+        let mut core = Core::new(defaults(), None);
+        for i in 0..64 {
+            assert!(core.open_permission(ask("a", "Bash"), 0).hold, "{i}");
+        }
+        assert!(!core.open_permission(ask("a", "Bash"), 0).hold);
+        // Once the old ones are lost there is room again.
+        assert!(core.open_permission(ask("a", "Bash"), 3000).hold);
+    }
+
+    #[test]
+    fn a_request_alerts_once_and_the_later_notification_does_not_double_it() {
+        let mut core = Core::new(defaults(), None);
+        let first = core.open_permission(ask("a", "Bash"), 5000).alert.unwrap();
+        assert_eq!(first.tier, Tier::NeedsYou);
+        assert_eq!(first.sound.as_deref(), Some("alert"));
+        assert_eq!(core.snapshot().sessions[0].terminal_pid, Some(7));
+        assert_eq!(core.snapshot().sessions[0].since, 5);
+        assert_eq!(core.snapshot().waiting, 1);
+
+        let mut note = ev("Notification", "a", None);
+        note.notification_type = Some("permission_prompt".into());
+        let later = core.handle(note, 6).unwrap();
+        assert_eq!((later.sound, later.speak), (None, None));
+        let again = core.open_permission(ask("a", "Bash"), 7000).alert.unwrap();
+        assert_eq!((again.sound, again.speak), (None, None));
+        assert_eq!(core.snapshot().waiting, 1);
+    }
+
+    #[test]
+    fn a_request_uses_the_subagent_that_asked() {
+        let mut core = Core::new(defaults(), None);
+        let mut sub = ask("a", "Bash");
+        sub.agent_id = Some("ag".into());
+        core.open_permission(sub, 1000);
+        // A sibling working on something else must not clear the wait.
+        core.handle(ev("PreToolUse", "a", Some("Read")), 2);
+        assert_eq!(core.snapshot().waiting, 1);
+    }
+
+    #[test]
+    fn a_decision_comes_back_once_as_the_exact_reply() {
+        let mut core = Core::new(defaults(), None);
+        let o = core.open_permission(ask("a", "Bash"), 0);
+        assert!(core.answer_permission(&o.id, Choice::AllowOnce, 999).is_err());
+        assert_eq!(core.poll_permission(&o.id, 999).0, Polled::Waiting);
+        core.answer_permission(&o.id, Choice::AllowOnce, 1000).unwrap();
+        let want = permission::reply(Choice::AllowOnce, None).unwrap().to_string();
+        assert_eq!(core.poll_permission(&o.id, 1100).0, Polled::Reply(want));
+        assert_eq!(core.poll_permission(&o.id, 1200).0, Polled::Gone);
+    }
+
+    #[test]
+    fn deny_replies_and_release_is_gone() {
+        let mut core = Core::new(defaults(), None);
+        let o = core.open_permission(ask("a", "Bash"), 0);
+        core.answer_permission(&o.id, Choice::Deny, 1000).unwrap();
+        let want = permission::reply(Choice::Deny, None).unwrap().to_string();
+        assert_eq!(core.poll_permission(&o.id, 1100).0, Polled::Reply(want));
+
+        let o = core.open_permission(ask("a", "Bash"), 2000);
+        core.answer_permission(&o.id, Choice::Release, 2000).unwrap();
+        assert_eq!(core.poll_permission(&o.id, 2100).0, Polled::Gone);
+    }
+
+    #[test]
+    fn rule_choices_use_the_rule_vetted_at_open() {
+        let rule = Rule { tool: "Bash".into(), content: "node *".into(), destination: "localSettings".into() };
+        for choice in [Choice::AllowSession, Choice::AlwaysAllow] {
+            let mut core = Core::new(defaults(), None);
+            let o = core.open_permission(with_rule("a"), 0);
+            core.answer_permission(&o.id, choice, 1000).unwrap();
+            let want = permission::reply(choice, Some(&rule)).unwrap().to_string();
+            assert_eq!(core.poll_permission(&o.id, 1100).0, Polled::Reply(want));
+        }
+    }
+
+    #[test]
+    fn a_suggestion_that_fails_vetting_offers_no_rule_choice() {
+        let mut core = Core::new(defaults(), None);
+        let mut other_tool = with_rule("a");
+        other_tool.tool_name = "PowerShell".into();
+        let o = core.open_permission(other_tool, 0);
+        assert!(o.hold);
+        assert!(core.answer_permission(&o.id, Choice::AlwaysAllow, 1000).is_err());
+        assert!(core.answer_permission(&o.id, Choice::AllowSession, 1000).is_err());
+        assert_eq!(core.poll_permission(&o.id, 1100).0, Polled::Waiting);
+    }
+
+    #[test]
+    fn a_decided_allow_leaves_needs_you_until_the_next_tool_or_stop() {
+        for next in ["PreToolUse", "Stop"] {
+            let mut core = Core::new(defaults(), None);
+            let o = core.open_permission(ask("a", "Bash"), 0);
+            core.answer_permission(&o.id, Choice::AllowOnce, 1000).unwrap();
+            core.poll_permission(&o.id, 1100);
+            assert_eq!(core.snapshot().waiting, 1);
+            core.handle(ev(next, "a", Some("Bash")), 2);
+            assert_eq!(core.snapshot().waiting, 0, "{next}");
+        }
+    }
+
+    #[test]
+    fn hold_defaults_to_120_seconds() {
+        let mut core = Core::new(defaults(), None);
+        let o = core.open_permission(ask("a", "Bash"), 0);
+        keep_polling(&mut core, &o.id, 2000, 120_000);
+        assert_eq!(core.poll_permission(&o.id, 120_000).0, Polled::Gone);
+    }
+
+    #[test]
+    fn set_hold_clamps_to_10_and_125() {
+        for (set, limit) in [(1, 10_000), (10, 10_000), (60, 60_000), (125, 125_000), (500, 125_000)] {
+            let mut core = Core::new(defaults(), None);
+            core.set_hold(set);
+            let o = core.open_permission(ask("a", "Bash"), 0);
+            keep_polling(&mut core, &o.id, 2000, limit);
+            assert_eq!(core.poll_permission(&o.id, limit - 1).0, Polled::Waiting, "{set}");
+            assert_eq!(core.poll_permission(&o.id, limit).0, Polled::Gone, "{set}");
+        }
+    }
+
+    #[test]
+    fn tick_permissions_reports_only_changes() {
+        let mut core = Core::new(defaults(), None);
+        assert!(!core.tick_permissions(0));
+        core.open_permission(ask("a", "Bash"), 0);
+        assert!(!core.tick_permissions(2999));
+        assert!(core.tick_permissions(3000));
+        assert!(!core.tick_permissions(3001));
+    }
+
+    #[test]
+    fn polling_one_request_clears_out_a_lost_one_and_says_so() {
+        let mut core = Core::new(defaults(), None);
+        let lost = core.open_permission(ask("a", "Bash"), 0);
+        let live = core.open_permission(ask("b", "Bash"), 0);
+        assert!(!core.poll_permission(&live.id, 2000).1);
+        let (polled, changed) = core.poll_permission(&live.id, 3000);
+        assert_eq!(polled, Polled::Waiting);
+        assert!(changed);
+        assert_eq!(core.poll_permission(&lost.id, 3100).0, Polled::Gone);
+    }
+
+    #[test]
+    fn collecting_a_decision_counts_as_a_change() {
+        let mut core = Core::new(defaults(), None);
+        let o = core.open_permission(ask("a", "Bash"), 0);
+        core.answer_permission(&o.id, Choice::Deny, 1000).unwrap();
+        assert!(core.poll_permission(&o.id, 1100).1);
+    }
+
+    #[test]
+    fn the_input_never_reaches_a_snapshot() {
+        let mut core = Core::new(defaults(), None);
+        core.open_permission(with_rule("a"), 0);
+        let text = format!("{:?}", core.snapshot());
+        assert!(!text.contains("node") && !text.contains("Show version"), "{text}");
     }
 
     #[test]

@@ -1,32 +1,56 @@
 #![windows_subsystem = "windows"]
-//! da-hook: reads a Claude Code hook event on stdin and forwards it to the
-//! desktop app over localhost. Always exits 0 with empty stdout.
+//! da-hook: reads a Claude Code hook event on stdin and forwards it to the desktop app over
+//! localhost. Always exits 0. Stdout stays empty, so Claude Code carries on as normal, unless
+//! the app returns an explicit allow or deny for a permission request.
 
 use serde_json::{json, Value};
-use std::io::Read;
-use std::time::Duration;
+use std::io::{Read, Write};
+use std::sync::mpsc::Sender;
+use std::time::{Duration, Instant};
+
+/// How long any event may take.
+const EVENT_LIMIT: Duration = Duration::from_millis(1800);
+/// How long a permission request may take. Outlasts the app's longest hold (125 seconds)
+/// and ends inside the 130 second timeout of the settings entry.
+const PERMISSION_LIMIT: Duration = Duration::from_secs(128);
+const POLL_EVERY: Duration = Duration::from_millis(250);
+
+enum Progress {
+    /// A permission request arrived: the longer limit applies.
+    Hold,
+    Done,
+}
 
 fn main() {
     // Release builds use panic = "abort"; make any panic a clean exit 0.
     std::panic::set_hook(Box::new(|_| std::process::exit(0)));
-    // The whole job runs on a worker so a stuck stdin or network call cannot
-    // hold the session past the 2 second budget.
+    // The whole job runs on a worker so a stuck stdin or network call cannot hold the session
+    // past its limit. Stdin is read under the short limit whatever the event turns out to be.
+    let start = Instant::now();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        run();
-        let _ = tx.send(());
+        run(&tx);
+        let _ = tx.send(Progress::Done);
     });
-    let _ = rx.recv_timeout(Duration::from_millis(1800));
+    let mut limit = EVENT_LIMIT;
+    while let Ok(Progress::Hold) = rx.recv_timeout(limit.saturating_sub(start.elapsed())) {
+        limit = PERMISSION_LIMIT;
+    }
     std::process::exit(0);
 }
 
-fn run() {
+fn run(progress: &Sender<Progress>) {
     let mut input = String::new();
     if std::io::stdin().read_to_string(&mut input).is_err() {
         return;
     }
     let Ok(v) = serde_json::from_str::<Value>(&input) else { return };
     let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_owned);
+    let name = s("hook_event_name").unwrap_or_default();
+    let is_permission = name == "PermissionRequest";
+    if is_permission {
+        let _ = progress.send(Progress::Hold);
+    }
 
     let Some((port, token, app_pid)) = read_endpoint() else { return };
     // The app is gone: skip the connect probe and everything after it.
@@ -35,21 +59,33 @@ fn run() {
     }
     let source = std::env::var("CLAUDE_CODE_ENTRYPOINT").unwrap_or_default();
 
-    // tool_input is deliberately never read or forwarded.
-    let mut event = json!({
-        "name": s("hook_event_name").unwrap_or_default(),
-        "session_id": s("session_id").unwrap_or_default(),
-        "cwd": s("cwd").unwrap_or_default(),
-        "tool": s("tool_name"),
-        "notification_type": s("notification_type"),
-        "source": source,
-    });
+    // tool_input and permission_suggestions go only into the permission body.
+    let mut body = if is_permission {
+        json!({
+            "session_id": s("session_id").unwrap_or_default(),
+            "cwd": s("cwd").unwrap_or_default(),
+            "tool_name": s("tool_name").unwrap_or_default(),
+            "tool_input": v.get("tool_input"),
+            "permission_suggestions": v.get("permission_suggestions"),
+            "description": v.pointer("/tool_input/description").and_then(Value::as_str),
+            "source": source,
+        })
+    } else {
+        json!({
+            "name": name,
+            "session_id": s("session_id").unwrap_or_default(),
+            "cwd": s("cwd").unwrap_or_default(),
+            "tool": s("tool_name"),
+            "notification_type": s("notification_type"),
+            "source": source,
+        })
+    };
     // Present only for events from a subagent.
     if let Some(agent) = s("agent_id") {
-        event["agent_id"] = json!(agent);
+        body["agent_id"] = json!(agent);
     }
     if source == "cli" {
-        event["terminal_pid"] = json!(terminal::terminal_pid());
+        body["terminal_pid"] = json!(terminal::terminal_pid());
     }
 
     // Windows takes about 2 seconds to report a refused loopback connect. A live app on
@@ -65,10 +101,62 @@ fn run() {
         .redirects(0)
         .timeout(Duration::from_secs(1))
         .build();
-    let _ = agent
-        .post(&format!("http://127.0.0.1:{port}/event"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .send_string(&event.to_string());
+    let base = format!("http://127.0.0.1:{port}");
+    let auth = format!("Bearer {token}");
+    if is_permission {
+        if let Some(decision) = ask_app(&agent, &base, &auth, &body.to_string()) {
+            let mut out = std::io::stdout();
+            let _ = out.write_all(decision.as_bytes());
+            let _ = out.flush();
+        }
+    } else {
+        let _ = agent
+            .post(&format!("{base}/event"))
+            .set("Authorization", &auth)
+            .send_string(&body.to_string());
+    }
+}
+
+/// Opens the request, then polls until the app decides. Returns the reply text only for an
+/// explicit decision; every other ending is None, which leaves Claude Code's normal prompt.
+fn ask_app(agent: &ureq::Agent, base: &str, auth: &str, body: &str) -> Option<String> {
+    let opened = agent
+        .post(&format!("{base}/permission"))
+        .set("Authorization", auth)
+        .send_string(body)
+        .ok()?;
+    if opened.status() != 200 {
+        return None;
+    }
+    let url = format!("{base}/permission/{}", held_id(&opened.into_string().ok()?)?);
+    loop {
+        std::thread::sleep(POLL_EVERY);
+        let answer = agent.get(&url).set("Authorization", auth).call().ok()?;
+        match answer.status() {
+            204 => {}
+            200 => return answer.into_string().ok().filter(|text| is_decision(text)),
+            _ => return None,
+        }
+    }
+}
+
+/// The request id, when the app says it is holding the request. Ids are hex, so one can only
+/// ever name a request under the permission path.
+fn held_id(open_reply: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(open_reply).ok()?;
+    if !v.get("hold")?.as_bool()? {
+        return None;
+    }
+    let id = v.get("id")?.as_str()?;
+    (!id.is_empty() && id.bytes().all(|b| b.is_ascii_hexdigit())).then(|| id.to_owned())
+}
+
+/// True only for JSON whose decision is exactly allow or deny.
+fn is_decision(text: &str) -> bool {
+    serde_json::from_str::<Value>(text).is_ok_and(|v| {
+        let behavior = v.pointer("/hookSpecificOutput/decision/behavior").and_then(Value::as_str);
+        matches!(behavior, Some("allow" | "deny"))
+    })
 }
 
 /// Whether a process with this id is running. A cheap handle check, well under a millisecond.
