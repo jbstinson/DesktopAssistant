@@ -4,13 +4,15 @@
 //! only `claude_settings_path` knows where the real file lives.
 
 use crate::delivery::Queue;
+use crate::rules::{Alert, Tier};
+use crate::voice::{self, Choice};
 use crate::installer::{self, Change};
 use crate::{lock, overlay};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, Wry};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -94,6 +96,15 @@ pub struct TrayItems {
     toggle: MenuItem<Wry>,
     quiet: CheckMenuItem<Wry>,
     hooks: CheckMenuItem<Wry>,
+    voices: Vec<(String, CheckMenuItem<Wry>)>,
+}
+
+/// What the Voice submenu shows and where a pick is kept.
+pub struct VoiceMenu {
+    pub names: Vec<String>,
+    pub default: Option<String>,
+    pub choice: Choice,
+    pub path: PathBuf,
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -196,16 +207,51 @@ fn open_rules() {
     }
 }
 
+/// Switches to the picked voice, remembers it, and speaks a sample.
+fn pick_voice(items: &TrayItems, menu: &VoiceMenu, queue: &Queue, name: &str) {
+    for (item_name, item) in &items.voices {
+        let _ = item.set_checked(item_name == name);
+    }
+    *lock(&menu.choice) = Some(name.to_string());
+    if let Err(e) = voice::save(&menu.path, name) {
+        eprintln!("voice: cannot save choice: {e}");
+    }
+    queue.push(Alert { tier: Tier::GoodToKnow, sound: None, speak: Some(voice::sample_text(name)) });
+}
+
 /// Builds the tray icon and its menu. `hooks_on` is the checked state at startup.
-pub fn install(app: &AppHandle, core: Core, publish: Publish, queue: Arc<Queue>, hooks_on: bool) -> tauri::Result<()> {
+pub fn install(
+    app: &AppHandle,
+    core: Core,
+    publish: Publish,
+    queue: Arc<Queue>,
+    hooks_on: bool,
+    voice_menu: VoiceMenu,
+) -> tauri::Result<()> {
     let toggle = MenuItem::with_id(app, "toggle", "Hide", true, None::<&str>)?;
     let quiet = CheckMenuItem::with_id(app, "quiet", "Do not disturb", true, false, None::<&str>)?;
     let hooks = CheckMenuItem::with_id(app, "hooks", "Connect to Claude Code", true, hooks_on, None::<&str>)?;
+    let voice_submenu = Submenu::new(app, "Voice", true)?;
+    let voices = {
+        let chosen = lock(&voice_menu.choice).clone();
+        let ticked = voice::selected(chosen.as_deref(), voice_menu.default.as_deref());
+        let mut items = Vec::new();
+        for name in &voice_menu.names {
+            let id = format!("voice:{name}");
+            let item = CheckMenuItem::with_id(app, id, name, true, ticked == Some(name.as_str()), None::<&str>)?;
+            voice_submenu.append(&item)?;
+            items.push((name.clone(), item));
+        }
+        items
+    };
+    if voices.is_empty() {
+        voice_submenu.append(&MenuItem::new(app, "No voices found", false, None::<&str>)?)?;
+    }
     let rules = MenuItem::with_id(app, "rules", "Open rules file", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&toggle, &quiet, &hooks, &rules, &sep, &quit_item])?;
-    app.manage(TrayItems { toggle, quiet, hooks });
+    let menu = Menu::with_items(app, &[&toggle, &quiet, &voice_submenu, &hooks, &rules, &sep, &quit_item])?;
+    app.manage(TrayItems { toggle, quiet, hooks, voices });
 
     let mut builder = TrayIconBuilder::new().tooltip("DesktopAssistant").menu(&menu);
     if let Some(icon) = app.default_window_icon() {
@@ -228,7 +274,11 @@ pub fn install(app: &AppHandle, core: Core, publish: Publish, queue: Arc<Queue>,
             }
             "rules" => open_rules(),
             "quit" => quit(app),
-            _ => {}
+            id => {
+                if let Some(name) = id.strip_prefix("voice:") {
+                    pick_voice(&app.state::<TrayItems>(), &voice_menu, &queue, name);
+                }
+            }
         })
         .build(app)?;
     Ok(())

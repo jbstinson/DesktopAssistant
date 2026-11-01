@@ -1,6 +1,7 @@
 //! Queued sound and spoken alerts. One worker thread plays them one at a time.
 
 use crate::rules::Alert;
+use crate::voice::Choice;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -114,11 +115,29 @@ static BELL_WAV: &[u8] = include_bytes!("../sounds/bell.wav");
 const SAY_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Plays embedded WAVs with PlaySoundW and speaks through the Windows voices.
-pub struct WindowsOutput;
+pub struct WindowsOutput {
+    pub voice: Choice,
+}
 
 thread_local! {
     // Created on first use, on the worker thread that speaks.
     static TTS: RefCell<Option<tts::Tts>> = const { RefCell::new(None) };
+    // The voice name last applied to TTS.
+    static APPLIED: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// Switches to the chosen voice if it changed. On failure the current voice keeps speaking.
+fn apply_voice(t: &mut tts::Tts, wanted: Option<String>) {
+    APPLIED.with(|applied| {
+        let mut applied = applied.borrow_mut();
+        let Some(name) = wanted.filter(|w| applied.as_ref() != Some(w)) else { return };
+        let found = t.voices().ok().and_then(|all| all.into_iter().find(|v| v.name() == name));
+        match found.map(|v| t.set_voice(&v)) {
+            Some(Ok(())) => *applied = Some(name),
+            Some(Err(e)) => eprintln!("delivery: cannot use voice {name:?}: {e}"),
+            None => eprintln!("delivery: voice {name:?} not found"),
+        }
+    });
 }
 
 impl Output for WindowsOutput {
@@ -154,6 +173,7 @@ impl Output for WindowsOutput {
                 }
             }
             let t = slot.as_mut().unwrap();
+            apply_voice(t, self.voice.lock().unwrap_or_else(|e| e.into_inner()).clone());
             let (tx, rx) = mpsc::channel::<()>();
             let tx_end = Mutex::new(tx.clone());
             let tx_stop = Mutex::new(tx);
@@ -324,9 +344,21 @@ mod tests {
     #[test]
     #[ignore]
     fn windows_output_speaks() {
-        let out = WindowsOutput;
+        let out = WindowsOutput { voice: Default::default() };
         out.play("alert");
         out.play("bell");
         out.say("Desktop assistant sound check.");
+    }
+
+    /// Manual check of the real speech engine; makes audible sound. Run with:
+    /// cargo test windows_output_switches_voice -- --ignored
+    #[test]
+    #[ignore]
+    fn windows_output_switches_voice() {
+        let (names, default) = crate::voice::installed();
+        let other = names.into_iter().find(|n| Some(n) != default.as_ref()).expect("a second voice");
+        let out = WindowsOutput { voice: Arc::new(Mutex::new(Some(other.clone()))) };
+        out.say("Voice switch check.");
+        assert_eq!(APPLIED.with(|a| a.borrow().clone()), Some(other));
     }
 }

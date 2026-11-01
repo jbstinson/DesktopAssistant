@@ -35,6 +35,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 
 - **Hide / Show**: hides or shows the robot.
 - **Do not disturb**: mutes sound and speech. The robot still animates.
+- **Voice**: lists the Windows voices installed on this PC. Picking one speaks a short sample and remembers your choice in `%APPDATA%\DesktopAssistantoice.txt`. The sample is muted during Do not disturb. If a saved voice is uninstalled, the Windows default is used.
 - **Connect to Claude Code**: ticked when the hooks are installed. Click again to remove only our entries.
 - **Open rules file**: opens `rules.toml` in Notepad.
 - **Quit**.

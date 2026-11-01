@@ -13,6 +13,7 @@ mod rules_watch;
 mod sessions;
 mod single;
 mod tray;
+mod voice;
 mod installer;
 
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -241,7 +242,10 @@ fn main() {
             };
             app.manage(publish.clone());
 
-            let queue = Arc::new(delivery::Queue::new(delivery::WindowsOutput));
+            let voice_path = paths::data_dir().join("voice.txt");
+            let (voices, default_voice) = voice::installed();
+            let choice: voice::Choice = Arc::new(Mutex::new(voice::resolve(voice::load(&voice_path), &voices)));
+            let queue = Arc::new(delivery::Queue::new(delivery::WindowsOutput { voice: choice.clone() }));
 
             let started = {
                 let (core, queue, publish) = (core.clone(), queue.clone(), publish.clone());
@@ -272,7 +276,8 @@ fn main() {
             app.manage(Mutex::new(watcher));
             app.manage(queue.clone());
 
-            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on)?;
+            let voice_menu = tray::VoiceMenu { names: voices, default: default_voice, choice, path: voice_path };
+            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on, voice_menu)?;
 
             // Ctrl+Alt+D shows or hides the character. If another app owns the key, say so
             // in the warning and carry on.
