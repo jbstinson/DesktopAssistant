@@ -541,6 +541,40 @@ fn a_server_dying_mid_hold_prints_nothing() {
 }
 
 #[test]
+fn a_killed_intermediate_process_ends_the_hold() {
+    // cmd stands in for bash: test > cmd > da-hook. Killing cmd leaves da-hook running, as
+    // killing a session does on Windows, so the hook must notice by itself.
+    let waits: Vec<Answer> = (0..60).map(|_| waiting()).collect();
+    let mut script = vec![say(200, HOLD)];
+    script.extend(waits);
+    let (d, _server) = fake_app("chainkill", script);
+    let start = Instant::now();
+    let mut cmd = Command::new("cmd")
+        .arg("/c")
+        .arg(env!("CARGO_BIN_EXE_da-hook"))
+        .env("APPDATA", &d)
+        .env_remove("CLAUDE_CODE_ENTRYPOINT")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = cmd.stdin.take().unwrap();
+    let mut stdout = cmd.stdout.take().unwrap();
+    stdin.write_all(PERM.as_bytes()).unwrap();
+    drop(stdin);
+    std::thread::sleep(Duration::from_millis(1200));
+    cmd.kill().unwrap();
+    let killed = Instant::now();
+    let mut out = String::new();
+    stdout.read_to_string(&mut out).unwrap();
+    assert_eq!(out, "");
+    assert!(killed.elapsed() < Duration::from_millis(1500), "kept holding: {:?}", killed.elapsed());
+    assert!(start.elapsed() < Duration::from_secs(5));
+    let _ = cmd.wait();
+}
+
+#[test]
 fn a_stuck_poll_ends_the_wait_after_its_one_second_limit() {
     let (d, server) = fake_app("stuck", vec![say(200, HOLD), hang()]);
     let (out, took) = run_capture(&d, PERM);

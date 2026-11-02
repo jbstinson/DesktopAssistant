@@ -130,8 +130,14 @@ fn ask_app(agent: &ureq::Agent, base: &str, auth: &str, body: &str) -> Option<St
         return None;
     }
     let url = format!("{base}/permission/{}", held_id(&opened.into_string().ok()?)?);
+    // Claude Code runs hooks as claude.exe > bash.exe > da-hook.exe, and on Windows a child
+    // outlives its parent. Watch the chain so a killed session ends the wait.
+    let chain = terminal::session_chain();
     loop {
         std::thread::sleep(POLL_EVERY);
+        if chain.iter().any(|&pid| !process_exists(pid)) {
+            return None;
+        }
         let answer = agent.get(&url).set("Authorization", auth).call().ok()?;
         match answer.status() {
             204 => {}
@@ -268,6 +274,33 @@ mod terminal {
         None
     }
 
+    /// Shells that sit between Claude Code and a hook.
+    const SHELLS: [&str; 3] = ["bash.exe", "sh.exe", "cmd.exe"];
+    const CHAIN_MAX: usize = 8;
+
+    /// Ancestors of `start`, nearest first, up to and including the first one that is not a
+    /// shell, at most `CHAIN_MAX`. Empty when `start` is unknown.
+    fn chain_from(start: u32, procs: &Procs) -> Vec<u32> {
+        let mut chain = Vec::new();
+        let mut pid = start;
+        while chain.len() < CHAIN_MAX {
+            let Some((parent, _)) = procs.get(&pid) else { break };
+            let Some((_, name)) = procs.get(parent) else { break };
+            chain.push(*parent);
+            if !SHELLS.iter().any(|s| name.eq_ignore_ascii_case(s)) {
+                break;
+            }
+            pid = *parent;
+        }
+        chain
+    }
+
+    /// The process ids whose exit means the Claude Code session is gone: da-hook's parent
+    /// shells and the first non-shell above them. Empty if the snapshot failed.
+    pub fn session_chain() -> Vec<u32> {
+        chain_from(std::process::id(), &processes())
+    }
+
     /// First ancestor of this process that owns a visible top-level window, never explorer.
     pub fn terminal_pid() -> Option<u32> {
         find_terminal(std::process::id(), &processes(), has_visible_window)
@@ -292,6 +325,22 @@ mod terminal {
             let p = procs(&[(10, 20, "da-hook.exe"), (20, 30, "claude.exe"), (30, 40, "Explorer.EXE"), (40, 0, "winlogon.exe")]);
             // Explorer owns visible windows, but it is never a terminal.
             assert_eq!(find_terminal(10, &p, |pid| pid == 30 || pid == 40), None);
+        }
+
+        #[test]
+        fn chain_runs_through_shells_to_the_first_other_process() {
+            let p = procs(&[(10, 20, "da-hook.exe"), (20, 30, "BASH.EXE"), (30, 40, "sh.exe"), (40, 50, "Cmd.exe"), (50, 60, "claude.exe"), (60, 0, "WindowsTerminal.exe")]);
+            assert_eq!(chain_from(10, &p), vec![20, 30, 40, 50]);
+        }
+
+        #[test]
+        fn chain_is_capped_and_empty_when_unknown() {
+            let mut list = vec![(1u32, 2u32, "da-hook.exe")];
+            for i in 2..20 {
+                list.push((i, i + 1, "bash.exe"));
+            }
+            assert_eq!(chain_from(1, &procs(&list)).len(), 8);
+            assert!(chain_from(99, &procs(&list)).is_empty());
         }
 
         #[test]
