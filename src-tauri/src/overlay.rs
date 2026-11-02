@@ -58,6 +58,15 @@ pub fn panel_rect(
     (x.min(mx + mw - panel.0).max(mx), y.min(my + mh - panel.1).max(my))
 }
 
+/// The area the panel must stay in: the current monitor's work area, else the primary's, else
+/// no limit at all (only when the system reports no monitors).
+pub fn area_or_primary(
+    current: Option<(i32, i32, i32, i32)>,
+    primary: Option<(i32, i32, i32, i32)>,
+) -> (i32, i32, i32, i32) {
+    current.or(primary).unwrap_or((i32::MIN / 2, i32::MIN / 2, i32::MAX, i32::MAX))
+}
+
 /// Moves and resizes in one step without activating or changing z-order, so the window
 /// keeps WS_EX_NOACTIVATE and its topmost state. Physical pixels.
 pub fn set_bounds(window: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) -> Result<(), String> {
@@ -176,6 +185,14 @@ mod tests {
         let mon = (0, 0, 1920, 1080);
         assert_eq!(panel_rect((1920 - 360, 1080 - 480), mon, PANEL, ROBOT), (1560, 600));
         assert_eq!(panel_rect((1920 - 359, 1080 - 479), mon, PANEL, ROBOT), (1561 + 140 - 360, 601 + 140 - 480));
+    }
+
+    #[test]
+    fn area_falls_back_to_the_primary_then_to_no_limit() {
+        let (a, b) = ((0, 0, 100, 100), (5, 5, 50, 50));
+        assert_eq!(area_or_primary(Some(a), Some(b)), a);
+        assert_eq!(area_or_primary(None, Some(b)), b);
+        assert_eq!(area_or_primary(None, None).2, i32::MAX);
     }
 
     #[test]

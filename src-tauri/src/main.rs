@@ -1,12 +1,15 @@
 #![windows_subsystem = "windows"]
 
 mod app;
+mod approvals;
 mod delivery;
 mod events;
 mod jump;
 mod listener;
 mod overlay;
 mod paths;
+mod pending;
+mod permission;
 mod position;
 mod rules;
 mod rules_watch;
@@ -16,14 +19,16 @@ mod tray;
 mod voice;
 mod installer;
 
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{Emitter, Manager, PhysicalPosition, State, WebviewWindow, WindowEvent};
 
 /// How often silent sessions are expired.
 const TICK: Duration = Duration::from_secs(30);
+/// How often held permission requests are checked for expiry.
+const PERMISSION_TICK: Duration = Duration::from_secs(1);
 
 const HOTKEY_WARNING: &str = "The Ctrl+Alt+D hotkey is taken by another app";
 const HOOKS_WARNING: &str = "Hooks cannot connect: the local listener failed to start";
@@ -62,6 +67,13 @@ fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
+/// Milliseconds since startup, for permission timing. This clock never steps backward, so a
+/// changed system time cannot keep a lost request alive.
+fn now_ms() -> u64 {
+    static STARTED: OnceLock<Instant> = OnceLock::new();
+    STARTED.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
 /// Opens or closes the panel by resizing the single window. The robot keeps its screen
 /// position and the window grows toward the side of its monitor that has room.
 #[tauri::command]
@@ -86,10 +98,14 @@ fn set_panel(
             return Ok(layout(off));
         }
         let robot = (pos.x + closed_inset, pos.y + closed_inset);
-        let monitor = match window.current_monitor() {
-            Ok(Some(m)) => (m.position().x, m.position().y, m.size().width as i32, m.size().height as i32),
-            _ => (i32::MIN / 2, i32::MIN / 2, i32::MAX, i32::MAX),
-        };
+        // The work area, so the panel stays clear of the taskbar. With no current monitor,
+        // the primary (first of monitor_rects) stands in.
+        let current = window.current_monitor().ok().flatten().map(|m| {
+            let a = m.work_area();
+            (a.position.x, a.position.y, a.size.width as i32, a.size.height as i32)
+        });
+        let primary = monitor_rects(&window).first().map(|r| (r.x, r.y, r.w, r.h));
+        let monitor = overlay::area_or_primary(current, primary);
         let (w, h) = (px(PANEL_W), px(PANEL_H));
         let (x, y) = overlay::panel_rect(robot, monitor, (w, h), (px(ROBOT_SIZE), px(ROBOT_SIZE)));
         overlay::set_bounds(&window, x, y, w, h)?;
@@ -134,10 +150,37 @@ fn jump_to(id: String, core: State<'_, SharedCore>) -> Result<(), String> {
     Ok(())
 }
 
+/// The only way to a decision, reached by a click on the panel. Anything but the five
+/// answer names is refused. Publishes either way so the panel shows what is true now.
+#[tauri::command]
+fn answer_permission(
+    id: String,
+    choice: String,
+    core: State<'_, SharedCore>,
+    publish: State<'_, Publish>,
+) -> Result<(), String> {
+    let result = match permission::Choice::parse(&choice) {
+        Some(c) => lock(&core).answer_permission(&id, c, now_ms()),
+        None => Err("unknown answer".to_string()),
+    };
+    publish();
+    result
+}
+
+/// Where the cursor is, relative to the window's top-left, in CSS pixels. The panel checks
+/// this when a request appears, since a still cursor sends it no mouse events.
+#[tauri::command]
+fn cursor_in_window(window: WebviewWindow) -> Result<(f64, f64), String> {
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let cursor = window.cursor_position().map_err(|e| e.to_string())?;
+    let origin = window.outer_position().map_err(|e| e.to_string())?;
+    Ok(((cursor.x - origin.x as f64) / scale, (cursor.y - origin.y as f64) / scale))
+}
+
 /// The UI asks once on load so it cannot miss events emitted before the page was ready.
 #[tauri::command]
 fn get_snapshot(core: State<'_, SharedCore>) -> app::Snapshot {
-    lock(&core).snapshot()
+    lock(&core).snapshot(now_ms())
 }
 
 /// Work areas of all monitors in physical pixels, the primary first.
@@ -192,7 +235,7 @@ fn main() {
         return;
     };
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![set_panel, dismiss_session, jump_to, get_snapshot])
+        .invoke_handler(tauri::generate_handler![set_panel, dismiss_session, jump_to, get_snapshot, answer_permission, cursor_in_window])
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -226,6 +269,14 @@ fn main() {
                 });
             let hooks_on = status.on;
             lock(&core).set_hooks_status(status);
+            // The hold is read once, here; editing approvals.json takes effect at next launch.
+            let approvals_path = paths::data_dir().join("approvals.json");
+            let approvals = approvals::load(&approvals_path);
+            {
+                let mut c = lock(&core);
+                c.set_approve_in_window(approvals.enabled);
+                c.set_hold(approvals.hold_seconds);
+            }
             app.manage(core.clone());
 
             // The emit mutex is held across snapshot and emit so an older snapshot can never
@@ -236,7 +287,7 @@ fn main() {
                 let emit_order = Arc::new(Mutex::new(()));
                 Arc::new(move || {
                     let _order = lock(&emit_order);
-                    let snap = lock(&core).snapshot();
+                    let snap = lock(&core).snapshot(now_ms());
                     let _ = handle.emit("snapshot", snap);
                 })
             };
@@ -247,16 +298,41 @@ fn main() {
             let choice: voice::Choice = Arc::new(Mutex::new(voice::resolve(voice::load(&voice_path), &voices)));
             let queue = Arc::new(delivery::Queue::new(delivery::WindowsOutput { voice: choice.clone() }));
 
-            let started = {
-                let (core, queue, publish) = (core.clone(), queue.clone(), publish.clone());
-                listener::start(move |event| {
-                    let alert = lock(&core).handle(event, now_secs());
-                    if let Some(alert) = alert {
-                        queue.push(alert);
+            // Every route releases the core lock before delivering or emitting.
+            let routes = listener::Routes {
+                event: Box::new({
+                    let (core, queue, publish) = (core.clone(), queue.clone(), publish.clone());
+                    move |event| {
+                        let alert = lock(&core).handle(event, now_secs());
+                        if let Some(alert) = alert {
+                            queue.push(alert);
+                        }
+                        publish();
                     }
-                    publish();
-                })
+                }),
+                open: Box::new({
+                    let (core, queue, publish) = (core.clone(), queue.clone(), publish.clone());
+                    move |ask| {
+                        let opened = lock(&core).open_permission(ask, now_secs(), now_ms());
+                        if let Some(alert) = opened.alert {
+                            queue.push(alert);
+                        }
+                        publish();
+                        (opened.id, opened.hold)
+                    }
+                }),
+                poll: Box::new({
+                    let (core, publish) = (core.clone(), publish.clone());
+                    move |id| {
+                        let (polled, changed) = lock(&core).poll_permission(id, now_ms());
+                        if changed {
+                            publish();
+                        }
+                        polled
+                    }
+                }),
             };
+            let started = listener::start(routes);
             match started {
                 Ok(ep) => eprintln!("listening on 127.0.0.1:{}", ep.port),
                 Err(e) => {
@@ -277,7 +353,8 @@ fn main() {
             app.manage(queue.clone());
 
             let voice_menu = tray::VoiceMenu { names: voices, default: default_voice, choice, path: voice_path };
-            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on, voice_menu)?;
+            let approve_menu = tray::ApproveMenu { approvals, path: approvals_path };
+            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on, voice_menu, approve_menu)?;
 
             // Ctrl+Alt+D shows or hides the character. If another app owns the key, say so
             // in the warning and carry on.
@@ -301,6 +378,16 @@ fn main() {
                 move || loop {
                     std::thread::sleep(TICK);
                     let changed = lock(&core).tick(now_secs());
+                    if changed {
+                        publish();
+                    }
+                }
+            });
+            std::thread::spawn({
+                let (core, publish) = (core.clone(), publish.clone());
+                move || loop {
+                    std::thread::sleep(PERMISSION_TICK);
+                    let changed = lock(&core).tick_permissions(now_ms());
                     if changed {
                         publish();
                     }

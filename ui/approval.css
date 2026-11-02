@@ -1,0 +1,89 @@
+/* The approval view fills the panel while a request is current. */
+#approval {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+body[data-request="true"] #approval { display: flex; }
+body[data-request="true"] #panel .warning,
+body[data-request="true"] #panel .sessions { display: none; }
+
+#approval .ap-header { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+#approval .ap-project { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+#approval .ap-source, #approval .ap-pos { color: #94a3b8; font-size: 12px; white-space: nowrap; }
+#approval .ap-timer { margin-left: auto; color: #94a3b8; font-size: 12px; font-variant-numeric: tabular-nums; }
+#approval .ap-desc { color: #cbd5e1; font-size: 12px; max-height: 3.9em; overflow-y: auto; overflow-wrap: anywhere; }
+
+/* Scrolls by wheel or scrollbar; the window never has keyboard focus. */
+#approval .ap-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px;
+  border-radius: 8px;
+  background: #0b1220;
+  border: 1px solid #1e293b;
+  scrollbar-width: auto;
+  scrollbar-color: #64748b #0b1220;
+  user-select: text;
+}
+#approval .ap-content::-webkit-scrollbar { width: 12px; }
+#approval .ap-content::-webkit-scrollbar-track { background: #0b1220; }
+#approval .ap-content::-webkit-scrollbar-thumb { background: #64748b; border-radius: 6px; border: 2px solid #0b1220; }
+
+#approval .ap-code {
+  margin: 0;
+  font: 12px/1.35 Consolas, "Cascadia Mono", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#approval .ap-path { font: 12px/1.35 Consolas, monospace; color: #7dd3fc; overflow-wrap: anywhere; margin-bottom: 6px; }
+#approval .ap-text { overflow-wrap: anywhere; margin-bottom: 4px; }
+#approval .ap-diff { margin-bottom: 6px; border-radius: 6px; border-left: 3px solid; padding: 3px 6px; }
+#approval .ap-diff-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; }
+#approval .ap-removed { background: rgba(239, 68, 68, 0.14); border-color: #ef4444; }
+#approval .ap-added { background: rgba(34, 197, 94, 0.14); border-color: #22c55e; }
+
+#approval .ap-rule { font-size: 12px; color: #cbd5e1; overflow-wrap: anywhere; max-height: 3.9em; overflow-y: auto; }
+#approval .ap-confirm { padding: 8px; border-radius: 8px; background: #1e293b; }
+#approval .ap-confirm-title { font-weight: 600; margin-bottom: 4px; }
+#approval .ap-rule-text { font: 12px/1.35 Consolas, monospace; overflow-wrap: anywhere; max-height: 6em; overflow-y: auto; }
+#approval .ap-broad { margin-top: 6px; padding: 5px 7px; border-radius: 6px; background: #78350f; color: #fde68a; font-size: 12px; }
+
+#approval .ap-row { display: flex; gap: 6px; justify-content: flex-end; }
+#approval .ap-row .ap-deny { margin-right: auto; }
+#approval .ap-btn {
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: #334155;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#approval .ap-btn:hover:not(:disabled) { background: #475569; }
+#approval .ap-btn:disabled { opacity: 0.4; cursor: default; }
+#approval .ap-deny { background: #7f1d1d; }
+#approval .ap-deny:hover:not(:disabled) { background: #991b1b; }
+#approval .ap-allow_once { background: #166534; }
+#approval .ap-allow_once:hover:not(:disabled) { background: #15803d; }
+
+#approval .ap-link {
+  align-self: center;
+  color: #7dd3fc;
+  text-decoration: underline;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+#approval .ap-link:hover { color: #bae6fd; }
+
+#approval .ap-actions { display: flex; flex-direction: column; gap: 6px; }
+
+/* Confirm at the far left, Cancel at the far right: Confirm is clear of Always allow's old spot. */
+#approval .ap-row-confirm { justify-content: space-between; }
+#approval .ap-tag { color: #94a3b8; font-size: 12px; font-variant-numeric: tabular-nums; }
+#approval .ap-tool { font-weight: 600; color: #e2e8f0; margin-bottom: 4px; overflow-wrap: anywhere; }
+#approval .ap-other { margin-top: 6px; padding-top: 4px; border-top: 1px solid #1e293b; }

@@ -23,6 +23,16 @@ pub enum Change {
     Remove,
 }
 
+/// How long Claude Code lets our hook run, in seconds. For PermissionRequest this must stay above
+/// `PERMISSION_LIMIT` in hook/src/main.rs (128), itself above `app::HOLD_MAX_SECS` (125).
+fn timeout_for(event: &str) -> u64 {
+    if event == "PermissionRequest" {
+        130
+    } else {
+        5
+    }
+}
+
 /// The exact command string that identifies our hook.
 fn command_for(hook_path: &str) -> String {
     format!("\"{}\"", hook_path.replace('\\', "/"))
@@ -69,8 +79,10 @@ fn is_our_hook(hook: &Value) -> bool {
     hook.get("command").and_then(Value::as_str).is_some_and(is_our_command)
 }
 
-fn is_current_hook(hook: &Value, command: &str) -> bool {
+/// Our hook at exactly this path with exactly this timeout.
+fn is_current_hook(hook: &Value, command: &str, timeout: u64) -> bool {
     hook.get("command").and_then(Value::as_str) == Some(command)
+        && hook.get("timeout").and_then(Value::as_u64) == Some(timeout)
 }
 
 fn group_matches(group: &Value, pred: impl Fn(&Value) -> bool) -> bool {
@@ -107,6 +119,7 @@ pub fn add(settings: &str, hook_path: &str) -> Result<String, String> {
         .as_object_mut()
         .ok_or("\"hooks\" is not an object")?;
     for ev in EVENTS {
+        let timeout = timeout_for(ev);
         let arr = hooks
             .entry(ev.to_string())
             .or_insert_with(|| Value::Array(Vec::new()))
@@ -130,15 +143,15 @@ pub fn add(settings: &str, hook_path: &str) -> Result<String, String> {
                     return false;
                 }
                 placed = true;
-                if !is_current_hook(h, &command) {
-                    *h = json!({"type": "command", "command": command, "timeout": 5});
+                if !is_current_hook(h, &command, timeout) {
+                    *h = json!({"type": "command", "command": command, "timeout": timeout});
                 }
                 true
             });
             !inner.is_empty()
         });
         if !placed {
-            arr.push(json!({"hooks": [{"type": "command", "command": command, "timeout": 5}]}));
+            arr.push(json!({"hooks": [{"type": "command", "command": command, "timeout": timeout}]}));
         }
     }
     render(root, settings)
@@ -194,7 +207,7 @@ pub fn has_any(settings: &str) -> bool {
     })
 }
 
-/// True when our hook, at exactly this path, is present on all nine events.
+/// True when our hook, at exactly this path and with exactly its timeout, is on all nine events.
 pub fn is_installed(settings: &str, hook_path: &str) -> bool {
     let Ok(root) = parse(settings) else { return false };
     let command = command_for(hook_path);
@@ -205,7 +218,7 @@ pub fn is_installed(settings: &str, hook_path: &str) -> bool {
         hooks
             .get(*ev)
             .and_then(Value::as_array)
-            .is_some_and(|a| a.iter().any(|g| group_matches(g, |h| is_current_hook(h, &command))))
+            .is_some_and(|a| a.iter().any(|g| group_matches(g, |h| is_current_hook(h, &command, timeout_for(ev)))))
     })
 }
 
@@ -274,9 +287,10 @@ mod tests {
             for ev in EVENTS {
                 let arr = out["hooks"][ev].as_array().unwrap();
                 assert_eq!(arr.len(), 1);
+                let timeout = if ev == "PermissionRequest" { 130 } else { 5 };
                 assert_eq!(
                     arr[0],
-                    json!({"hooks":[{"type":"command","command":CMD,"timeout":5}]})
+                    json!({"hooks":[{"type":"command","command":CMD,"timeout":timeout}]})
                 );
             }
             assert_eq!(out["hooks"].as_object().unwrap().len(), 9);
@@ -381,6 +395,76 @@ mod tests {
             assert_eq!(arr.len(), 1, "{ev}");
             assert_eq!(arr[0]["hooks"][0]["command"], CMD);
         }
+    }
+
+    #[test]
+    fn timeout_outlasts_the_hook_limit_which_outlasts_the_longest_hold() {
+        // The hook is a separate crate, so its limit is read from its source.
+        const HOOK_LIMIT: u64 = 128;
+        let hook = include_str!("../../hook/src/main.rs");
+        assert!(hook.contains(&format!("PERMISSION_LIMIT: Duration = Duration::from_secs({HOOK_LIMIT});")));
+        assert_eq!(crate::app::HOLD_MAX_SECS, 125);
+        assert!(crate::app::HOLD_MAX_SECS < HOOK_LIMIT);
+        assert!(HOOK_LIMIT < timeout_for("PermissionRequest"));
+        assert_eq!(timeout_for("PermissionRequest"), 130);
+    }
+
+    #[test]
+    fn permission_request_entry_with_the_old_timeout_is_stale_and_add_repairs_it() {
+        let old = stale_everywhere(CMD);
+        assert!(!is_installed(&old, HP));
+        assert!(has_any(&old));
+        let out = add(&old, HP).unwrap();
+        assert!(is_installed(&out, HP));
+        let out = v(&out);
+        for ev in EVENTS {
+            let arr = out["hooks"][ev].as_array().unwrap();
+            assert_eq!(arr.len(), 1, "{ev}");
+            let want = if ev == "PermissionRequest" { 130 } else { 5 };
+            assert_eq!(arr[0]["hooks"][0]["timeout"], want, "{ev}");
+            assert_eq!(arr[0]["hooks"][0]["command"], CMD, "{ev}");
+        }
+    }
+
+    #[test]
+    fn timeout_repair_stays_in_place_inside_a_shared_group() {
+        let input = json!({"hooks":{"PermissionRequest":[{"matcher":"m","hooks":[
+            {"type":"command","command":"mine-first"},
+            {"type":"command","command":CMD,"timeout":5},
+            {"type":"command","command":"mine-last"}]}]}})
+        .to_string();
+        let out = v(&add(&input, HP).unwrap());
+        assert_eq!(
+            out["hooks"]["PermissionRequest"],
+            json!([{"matcher":"m","hooks":[
+                {"type":"command","command":"mine-first"},
+                {"type":"command","command":CMD,"timeout":130},
+                {"type":"command","command":"mine-last"}]}])
+        );
+    }
+
+    #[test]
+    fn any_timeout_other_than_the_exact_one_is_stale() {
+        let good = add("{}", HP).unwrap();
+        for (ev, bad) in [("Stop", json!(6)), ("Stop", json!(null)), ("PermissionRequest", json!(129)), ("PermissionRequest", json!("130"))] {
+            let mut root = v(&good);
+            root["hooks"][ev][0]["hooks"][0]["timeout"] = bad.clone();
+            assert!(!is_installed(&root.to_string(), HP), "{ev} {bad}");
+        }
+        let mut root = v(&good);
+        root["hooks"]["Stop"][0]["hooks"][0].as_object_mut().unwrap().shift_remove("timeout");
+        assert!(!is_installed(&root.to_string(), HP));
+        assert!(is_installed(&add(&root.to_string(), HP).unwrap(), HP));
+    }
+
+    #[test]
+    fn apply_repairs_an_old_timeout_in_a_temp_file() {
+        let d = temp_dir("timeout");
+        let f = d.join("settings.json");
+        std::fs::write(&f, stale_everywhere(CMD)).unwrap();
+        apply(&f, Change::Add(HP.into())).unwrap();
+        assert!(is_installed(&std::fs::read_to_string(&f).unwrap(), HP));
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

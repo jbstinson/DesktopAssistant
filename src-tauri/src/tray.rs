@@ -3,6 +3,7 @@
 //! The settings path is always a parameter of the logic functions so tests use temp files;
 //! only `claude_settings_path` knows where the real file lives.
 
+use crate::approvals::{self, Approvals};
 use crate::delivery::Queue;
 use crate::rules::{Alert, Tier};
 use crate::voice::{self, Choice};
@@ -39,9 +40,10 @@ pub fn hook_path_beside(exe: &Path) -> PathBuf {
 /// How our hooks stand in Claude Code's settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HookStatus {
-    /// All nine events point at this hook exe.
+    /// All nine events point at this hook exe with the right timeouts.
     pub on: bool,
-    /// Entries of ours exist but not all point here (the exe moved): Connect repairs them.
+    /// Entries of ours exist but not all are current (the exe moved, or a timeout is old):
+    /// Connect repairs them.
     pub stale: bool,
 }
 
@@ -95,6 +97,7 @@ type Publish = Arc<dyn Fn() + Send + Sync>;
 pub struct TrayItems {
     toggle: MenuItem<Wry>,
     quiet: CheckMenuItem<Wry>,
+    approve: CheckMenuItem<Wry>,
     hooks: CheckMenuItem<Wry>,
     voices: Vec<(String, CheckMenuItem<Wry>)>,
 }
@@ -104,6 +107,12 @@ pub struct VoiceMenu {
     pub names: Vec<String>,
     pub default: Option<String>,
     pub choice: Choice,
+    pub path: PathBuf,
+}
+
+/// Where the Approve in window switch is kept, and the hold that is saved with it.
+pub struct ApproveMenu {
+    pub approvals: Approvals,
     pub path: PathBuf,
 }
 
@@ -138,6 +147,13 @@ fn show_window(window: &tauri::WebviewWindow, cmd: i32) {
 /// so it can stop its animations. Showing never activates the window.
 pub fn set_visible(app: &AppHandle, visible: bool) {
     let Some(window) = app.get_webview_window("main") else { return };
+    if let Some(core) = app.try_state::<Core>() {
+        lock(&core).set_visible(visible);
+    }
+    // Hiding released the held requests; the panel must stop showing them.
+    if let Some(publish) = app.try_state::<Publish>() {
+        publish();
+    }
     if visible {
         overlay::pause(false);
         show_window(&window, SW_SHOWNOACTIVATE);
@@ -166,17 +182,40 @@ pub fn quit(app: &AppHandle) {
 }
 
 fn toggle_quiet(items: &TrayItems, core: &Core, publish: &Publish, queue: &Queue) {
-    let quiet = !lock(core).snapshot().quiet;
+    let quiet = !lock(core).snapshot(crate::now_ms()).quiet;
     lock(core).set_quiet(quiet);
     queue.set_quiet(quiet);
     let _ = items.quiet.set_checked(quiet);
     publish();
 }
 
+/// Flips Approve in window. Turning it off releases every held request at once. The choice is
+/// saved with the hold the app started with.
+fn toggle_approve(items: &TrayItems, core: &Core, publish: &Publish, menu: &ApproveMenu) {
+    let on = {
+        let mut core = lock(core);
+        let on = !core.approve_in_window();
+        core.set_approve_in_window(on);
+        on
+    };
+    let _ = items.approve.set_checked(on);
+    if let Err(e) = approvals::save(&menu.path, Approvals { enabled: on, ..menu.approvals }) {
+        eprintln!("approvals: cannot save choice: {e}");
+    }
+    publish();
+}
+
+/// Passes on the status already held. The status is bound first so the core lock is free when
+/// `finish` runs: `finish` locks it again, and a guard held across that call would never wake.
+fn with_current_status(core: &Core, finish: impl FnOnce(HookStatus)) {
+    let status = lock(core).hooks_status();
+    finish(status);
+}
+
 /// The Connect / Disconnect flow. Blocks on message boxes, so call it off the event thread.
 fn toggle_hooks(items: &TrayItems, core: &Core, publish: &Publish) {
     let settings_hook = claude_settings_path().zip(std::env::current_exe().ok().map(|e| hook_path_beside(&e)));
-    let current = lock(core).snapshot().hooks_on;
+    let current = lock(core).snapshot(crate::now_ms()).hooks_on;
     let finish = |status: HookStatus| {
         lock(core).set_hooks_status(status);
         let _ = items.hooks.set_checked(status.on);
@@ -184,12 +223,12 @@ fn toggle_hooks(items: &TrayItems, core: &Core, publish: &Publish) {
     };
     let Some((settings, hook)) = settings_hook else {
         show_error("Cannot find your Claude Code settings folder (USERPROFILE is not set).");
-        finish(lock(core).hooks_status());
+        with_current_status(core, finish);
         return;
     };
     let enable = !current;
     if !ask(&confirm_text(&settings, enable)) {
-        finish(lock(core).hooks_status());
+        with_current_status(core, finish);
         return;
     }
     if let Err(e) = set_hooks(&settings, &hook, enable) {
@@ -227,9 +266,12 @@ pub fn install(
     queue: Arc<Queue>,
     hooks_on: bool,
     voice_menu: VoiceMenu,
+    approve_menu: ApproveMenu,
 ) -> tauri::Result<()> {
     let toggle = MenuItem::with_id(app, "toggle", "Hide", true, None::<&str>)?;
     let quiet = CheckMenuItem::with_id(app, "quiet", "Do not disturb", true, false, None::<&str>)?;
+    let approve =
+        CheckMenuItem::with_id(app, "approve", "Approve in window", true, approve_menu.approvals.enabled, None::<&str>)?;
     let hooks = CheckMenuItem::with_id(app, "hooks", "Connect to Claude Code", true, hooks_on, None::<&str>)?;
     let voice_submenu = Submenu::new(app, "Voice", true)?;
     let voices = {
@@ -250,8 +292,8 @@ pub fn install(
     let rules = MenuItem::with_id(app, "rules", "Open rules file", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&toggle, &quiet, &voice_submenu, &hooks, &rules, &sep, &quit_item])?;
-    app.manage(TrayItems { toggle, quiet, hooks, voices });
+    let menu = Menu::with_items(app, &[&toggle, &quiet, &approve, &voice_submenu, &hooks, &rules, &sep, &quit_item])?;
+    app.manage(TrayItems { toggle, quiet, approve, hooks, voices });
 
     let mut builder = TrayIconBuilder::new().tooltip("DesktopAssistant").menu(&menu);
     if let Some(icon) = app.default_window_icon() {
@@ -261,6 +303,7 @@ pub fn install(
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "toggle" => toggle_visible(app),
             "quiet" => toggle_quiet(&app.state::<TrayItems>(), &core, &publish, &queue),
+            "approve" => toggle_approve(&app.state::<TrayItems>(), &core, &publish, &approve_menu),
             "hooks" => {
                 // One dialog at a time, even if the item is clicked again meanwhile.
                 if HOOKS_BUSY.swap(true, Ordering::SeqCst) {
@@ -303,6 +346,20 @@ mod tests {
             std::fs::write(&hook, b"").unwrap();
         }
         (dir.join(".claude").join("settings.json"), hook)
+    }
+
+    #[test]
+    fn status_is_passed_on_with_the_core_lock_free() {
+        let rules = crate::rules::RuleSet::parse(crate::rules::DEFAULT_RULES).unwrap();
+        let core: Core = Arc::new(Mutex::new(crate::app::Core::new(rules, None)));
+        let status = HookStatus { on: true, stale: false };
+        lock(&core).set_hooks_status(status);
+        let mut seen = None;
+        with_current_status(&core, |s| {
+            assert!(core.try_lock().is_ok(), "the core lock is still held");
+            seen = Some(s);
+        });
+        assert_eq!(seen, Some(status));
     }
 
     #[test]

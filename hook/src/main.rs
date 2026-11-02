@@ -1,32 +1,57 @@
 #![windows_subsystem = "windows"]
-//! da-hook: reads a Claude Code hook event on stdin and forwards it to the
-//! desktop app over localhost. Always exits 0 with empty stdout.
+//! da-hook: reads a Claude Code hook event on stdin and forwards it to the desktop app over
+//! localhost. Always exits 0. Stdout stays empty, so Claude Code carries on as normal, unless
+//! the app returns an explicit allow or deny for a permission request.
 
 use serde_json::{json, Value};
-use std::io::Read;
-use std::time::Duration;
+use std::io::{Read, Write};
+use std::sync::mpsc::Sender;
+use std::time::{Duration, Instant};
+
+/// How long any event may take.
+const EVENT_LIMIT: Duration = Duration::from_millis(1800);
+/// How long a permission request may take. Must stay above `HOLD_MAX_SECS` in
+/// src-tauri/src/app.rs (125) and below the PermissionRequest timeout in
+/// `installer::timeout_for` (130). An installer test checks this.
+const PERMISSION_LIMIT: Duration = Duration::from_secs(128);
+const POLL_EVERY: Duration = Duration::from_millis(250);
+
+enum Progress {
+    /// A permission request arrived: the longer limit applies.
+    Hold,
+    Done,
+}
 
 fn main() {
     // Release builds use panic = "abort"; make any panic a clean exit 0.
     std::panic::set_hook(Box::new(|_| std::process::exit(0)));
-    // The whole job runs on a worker so a stuck stdin or network call cannot
-    // hold the session past the 2 second budget.
+    // The whole job runs on a worker so a stuck stdin or network call cannot hold the session
+    // past its limit. Stdin is read under the short limit whatever the event turns out to be.
+    let start = Instant::now();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        run();
-        let _ = tx.send(());
+        run(&tx);
+        let _ = tx.send(Progress::Done);
     });
-    let _ = rx.recv_timeout(Duration::from_millis(1800));
+    let mut limit = EVENT_LIMIT;
+    while let Ok(Progress::Hold) = rx.recv_timeout(limit.saturating_sub(start.elapsed())) {
+        limit = PERMISSION_LIMIT;
+    }
     std::process::exit(0);
 }
 
-fn run() {
+fn run(progress: &Sender<Progress>) {
     let mut input = String::new();
     if std::io::stdin().read_to_string(&mut input).is_err() {
         return;
     }
     let Ok(v) = serde_json::from_str::<Value>(&input) else { return };
     let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_owned);
+    let name = s("hook_event_name").unwrap_or_default();
+    let is_permission = name == "PermissionRequest";
+    if is_permission {
+        let _ = progress.send(Progress::Hold);
+    }
 
     let Some((port, token, app_pid)) = read_endpoint() else { return };
     // The app is gone: skip the connect probe and everything after it.
@@ -35,21 +60,33 @@ fn run() {
     }
     let source = std::env::var("CLAUDE_CODE_ENTRYPOINT").unwrap_or_default();
 
-    // tool_input is deliberately never read or forwarded.
-    let mut event = json!({
-        "name": s("hook_event_name").unwrap_or_default(),
-        "session_id": s("session_id").unwrap_or_default(),
-        "cwd": s("cwd").unwrap_or_default(),
-        "tool": s("tool_name"),
-        "notification_type": s("notification_type"),
-        "source": source,
-    });
+    // tool_input and permission_suggestions go only into the permission body.
+    let mut body = if is_permission {
+        json!({
+            "session_id": s("session_id").unwrap_or_default(),
+            "cwd": s("cwd").unwrap_or_default(),
+            "tool_name": s("tool_name").unwrap_or_default(),
+            "tool_input": v.get("tool_input"),
+            "permission_suggestions": v.get("permission_suggestions"),
+            "description": v.pointer("/tool_input/description").and_then(Value::as_str),
+            "source": source,
+        })
+    } else {
+        json!({
+            "name": name,
+            "session_id": s("session_id").unwrap_or_default(),
+            "cwd": s("cwd").unwrap_or_default(),
+            "tool": s("tool_name"),
+            "notification_type": s("notification_type"),
+            "source": source,
+        })
+    };
     // Present only for events from a subagent.
     if let Some(agent) = s("agent_id") {
-        event["agent_id"] = json!(agent);
+        body["agent_id"] = json!(agent);
     }
     if source == "cli" {
-        event["terminal_pid"] = json!(terminal::terminal_pid());
+        body["terminal_pid"] = json!(terminal::terminal_pid());
     }
 
     // Windows takes about 2 seconds to report a refused loopback connect. A live app on
@@ -65,10 +102,68 @@ fn run() {
         .redirects(0)
         .timeout(Duration::from_secs(1))
         .build();
-    let _ = agent
-        .post(&format!("http://127.0.0.1:{port}/event"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .send_string(&event.to_string());
+    let base = format!("http://127.0.0.1:{port}");
+    let auth = format!("Bearer {token}");
+    if is_permission {
+        if let Some(decision) = ask_app(&agent, &base, &auth, &body.to_string()) {
+            let mut out = std::io::stdout();
+            let _ = out.write_all(decision.as_bytes());
+            let _ = out.flush();
+        }
+    } else {
+        let _ = agent
+            .post(&format!("{base}/event"))
+            .set("Authorization", &auth)
+            .send_string(&body.to_string());
+    }
+}
+
+/// Opens the request, then polls until the app decides. Returns the reply text only for an
+/// explicit decision; every other ending is None, which leaves Claude Code's normal prompt.
+fn ask_app(agent: &ureq::Agent, base: &str, auth: &str, body: &str) -> Option<String> {
+    let opened = agent
+        .post(&format!("{base}/permission"))
+        .set("Authorization", auth)
+        .send_string(body)
+        .ok()?;
+    if opened.status() != 200 {
+        return None;
+    }
+    let url = format!("{base}/permission/{}", held_id(&opened.into_string().ok()?)?);
+    // Claude Code runs hooks as claude.exe > bash.exe > da-hook.exe, and on Windows a child
+    // outlives its parent. Watch the chain so a killed session ends the wait.
+    let chain = terminal::session_chain();
+    loop {
+        std::thread::sleep(POLL_EVERY);
+        if chain.iter().any(|&pid| !process_exists(pid)) {
+            return None;
+        }
+        let answer = agent.get(&url).set("Authorization", auth).call().ok()?;
+        match answer.status() {
+            204 => {}
+            200 => return answer.into_string().ok().filter(|text| is_decision(text)),
+            _ => return None,
+        }
+    }
+}
+
+/// The request id, when the app says it is holding the request. Ids are hex, so one can only
+/// ever name a request under the permission path.
+fn held_id(open_reply: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(open_reply).ok()?;
+    if !v.get("hold")?.as_bool()? {
+        return None;
+    }
+    let id = v.get("id")?.as_str()?;
+    (!id.is_empty() && id.bytes().all(|b| b.is_ascii_hexdigit())).then(|| id.to_owned())
+}
+
+/// True only for JSON whose decision is exactly allow or deny.
+fn is_decision(text: &str) -> bool {
+    serde_json::from_str::<Value>(text).is_ok_and(|v| {
+        let behavior = v.pointer("/hookSpecificOutput/decision/behavior").and_then(Value::as_str);
+        matches!(behavior, Some("allow" | "deny"))
+    })
 }
 
 /// Whether a process with this id is running. A cheap handle check, well under a millisecond.
@@ -179,6 +274,33 @@ mod terminal {
         None
     }
 
+    /// Shells that sit between Claude Code and a hook.
+    const SHELLS: [&str; 3] = ["bash.exe", "sh.exe", "cmd.exe"];
+    const CHAIN_MAX: usize = 8;
+
+    /// Ancestors of `start`, nearest first, up to and including the first one that is not a
+    /// shell, at most `CHAIN_MAX`. Empty when `start` is unknown.
+    fn chain_from(start: u32, procs: &Procs) -> Vec<u32> {
+        let mut chain = Vec::new();
+        let mut pid = start;
+        while chain.len() < CHAIN_MAX {
+            let Some((parent, _)) = procs.get(&pid) else { break };
+            let Some((_, name)) = procs.get(parent) else { break };
+            chain.push(*parent);
+            if !SHELLS.iter().any(|s| name.eq_ignore_ascii_case(s)) {
+                break;
+            }
+            pid = *parent;
+        }
+        chain
+    }
+
+    /// The process ids whose exit means the Claude Code session is gone: da-hook's parent
+    /// shells and the first non-shell above them. Empty if the snapshot failed.
+    pub fn session_chain() -> Vec<u32> {
+        chain_from(std::process::id(), &processes())
+    }
+
     /// First ancestor of this process that owns a visible top-level window, never explorer.
     pub fn terminal_pid() -> Option<u32> {
         find_terminal(std::process::id(), &processes(), has_visible_window)
@@ -203,6 +325,22 @@ mod terminal {
             let p = procs(&[(10, 20, "da-hook.exe"), (20, 30, "claude.exe"), (30, 40, "Explorer.EXE"), (40, 0, "winlogon.exe")]);
             // Explorer owns visible windows, but it is never a terminal.
             assert_eq!(find_terminal(10, &p, |pid| pid == 30 || pid == 40), None);
+        }
+
+        #[test]
+        fn chain_runs_through_shells_to_the_first_other_process() {
+            let p = procs(&[(10, 20, "da-hook.exe"), (20, 30, "BASH.EXE"), (30, 40, "sh.exe"), (40, 50, "Cmd.exe"), (50, 60, "claude.exe"), (60, 0, "WindowsTerminal.exe")]);
+            assert_eq!(chain_from(10, &p), vec![20, 30, 40, 50]);
+        }
+
+        #[test]
+        fn chain_is_capped_and_empty_when_unknown() {
+            let mut list = vec![(1u32, 2u32, "da-hook.exe")];
+            for i in 2..20 {
+                list.push((i, i + 1, "bash.exe"));
+            }
+            assert_eq!(chain_from(1, &procs(&list)).len(), 8);
+            assert!(chain_from(99, &procs(&list)).is_empty());
         }
 
         #[test]
