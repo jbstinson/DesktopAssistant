@@ -123,9 +123,9 @@ The panel can answer some Claude Code permission requests for you. Rules, voice 
 - **Allow once**: allows this one request.
 - **Allow this session**: allows requests like this one until the session ends. Shown only when there is a rule to save.
 - **Always allow**: saves a rule so requests like this are allowed from now on. Shown only when there is a rule to save.
+- **Answer in Claude Code**: hands the request back so Claude Code asks you its usual way.
 
 Allow this session and Always allow appear only when Claude Code suggests a single rule with real content. Some tools, compound commands and many edits get no such suggestion, so they offer Allow once only.
-- **Answer in Claude Code**: hands the request back so Claude Code asks you its usual way.
 
 The buttons are locked for 1 second after a request appears, so a click meant for something else cannot answer it. If the mouse was already over the panel, it must leave and come back first.
 
