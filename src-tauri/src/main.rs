@@ -98,10 +98,14 @@ fn set_panel(
             return Ok(layout(off));
         }
         let robot = (pos.x + closed_inset, pos.y + closed_inset);
-        let monitor = match window.current_monitor() {
-            Ok(Some(m)) => (m.position().x, m.position().y, m.size().width as i32, m.size().height as i32),
-            _ => (i32::MIN / 2, i32::MIN / 2, i32::MAX, i32::MAX),
-        };
+        // The work area, so the panel stays clear of the taskbar. With no current monitor,
+        // the primary (first of monitor_rects) stands in.
+        let current = window.current_monitor().ok().flatten().map(|m| {
+            let a = m.work_area();
+            (a.position.x, a.position.y, a.size.width as i32, a.size.height as i32)
+        });
+        let primary = monitor_rects(&window).first().map(|r| (r.x, r.y, r.w, r.h));
+        let monitor = overlay::area_or_primary(current, primary);
         let (w, h) = (px(PANEL_W), px(PANEL_H));
         let (x, y) = overlay::panel_rect(robot, monitor, (w, h), (px(ROBOT_SIZE), px(ROBOT_SIZE)));
         overlay::set_bounds(&window, x, y, w, h)?;

@@ -165,6 +165,7 @@ impl Core {
             && self.visible
             && self.approve_in_window
             && !self.quiet
+            && !self.hooks_stale
             && self.pending.count() < MAX_WAITING;
         let id = new_id();
         let hold = match &id {
@@ -636,6 +637,18 @@ when = { event = \"SessionEnd\", project = \"proj\" }
             assert!(o.id.bytes().all(|c| c.is_ascii_hexdigit()), "{}", o.id);
         }
         assert_eq!(core.poll_permission(&a.id, 100).0, Polled::Waiting);
+    }
+
+    #[test]
+    fn stale_hooks_are_handed_back_not_held() {
+        use crate::tray::HookStatus;
+        let mut core = Core::new(defaults(), None);
+        core.set_hooks_status(HookStatus { on: true, stale: true });
+        let o = core.open_permission(ask("a", "Bash"), 0, 0);
+        assert!(!o.hold);
+        assert_eq!(core.poll_permission(&o.id, 1).0, Polled::Gone);
+        core.set_hooks_status(HookStatus { on: true, stale: false });
+        assert!(core.open_permission(ask("a", "Bash"), 0, 0).hold);
     }
 
     #[test]
