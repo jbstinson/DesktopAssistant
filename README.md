@@ -109,7 +109,7 @@ The panel can answer some Claude Code permission requests for you. Rules, voice 
 
 **What goes straight back to Claude Code.** A request is not held when the robot is hidden, Do not disturb is on, or **Approve in window** is off. It goes back at once and Claude Code asks you its usual way. Hiding the robot, turning on Do not disturb or turning the switch off also hands back everything already held.
 
-**The hold.** By default a request is held for 120 seconds (2 minutes). If you have not answered, it goes back to Claude Code and you are asked there. To change the time, edit the app's settings file while the app is closed: `%APPDATA%\DesktopAssistant\approvals.json`:
+**The hold.** By default a request is held for 120 seconds (2 minutes). If you have not answered, it goes back to Claude Code, which asks its usual way (in an interactive session you are asked in the terminal; see the limits below for `claude -p`). To change the time, edit the app's settings file while the app is closed: `%APPDATA%\DesktopAssistant\approvals.json`:
 
 ```json
 {"enabled": true, "hold_seconds": 120}
@@ -123,6 +123,8 @@ The panel can answer some Claude Code permission requests for you. Rules, voice 
 - **Allow once**: allows this one request.
 - **Allow this session**: allows requests like this one until the session ends. Shown only when there is a rule to save.
 - **Always allow**: saves a rule so requests like this are allowed from now on. Shown only when there is a rule to save.
+
+Allow this session and Always allow appear only when Claude Code suggests a single rule with real content. Some tools, compound commands and many edits get no such suggestion, so they offer Allow once only.
 - **Answer in Claude Code**: hands the request back so Claude Code asks you its usual way.
 
 The buttons are locked for 1 second after a request appears, so a click meant for something else cannot answer it. If the mouse was already over the panel, it must leave and come back first.
@@ -136,6 +138,9 @@ The buttons are locked for 1 second after a request appears, so a click meant fo
 - Commands that Claude Code's auto mode approves never reach the window.
 - While a request is held, the terminal shows nothing. It looks stuck until you answer or the hold ends.
 - After the hold ends or a request is handed back, Windows Terminal or the Claude desktop app may show the normal prompt.
+- In `claude -p` background sessions nothing else can ask, so a request you do not answer in the panel is refused once the hold ends. Unattended scripts may therefore wait up to 2 minutes per request. Turn off **Approve in window** for those.
+- Hooks written by an older version (5 second limit) are never held; their requests go straight to Claude Code's normal prompt until you connect again.
+- When a session is killed, its request leaves the panel within about 4 seconds and the next one in the queue becomes current.
 
 ## Known limits
 
@@ -202,8 +207,10 @@ Checked and passing:
 
 Findings:
 
-- A session killed while waiting (`claude -p` stopped hard) did not clear the panel at once: the request stayed for about 8 seconds, until the 10 s hold ended. Nothing ran and nothing was approved, but the removal is slower than "at once".
+- A session killed while waiting (`claude -p` stopped hard) used to leave its request on the panel until the hold ended (about 8 seconds with a 10 s hold), because on Windows the hook outlives Claude Code. Fixed: the hook now watches its parent processes (see the rerun below).
 - Clicks that moved the cursor from outside the panel worked as designed; the lock was not re-tested here (`scripts\overlay-check.ps1` covers it).
+
+Rerun after the fix (default 120 s hold, real `claude -p` sessions A and B in a temp project, sandboxed app): with A held on the panel and B queued behind it ("1 of 2"), claude A was killed by id. Its da-hook exited 0.53 s later, the panel still showed A at +2 s and showed B, now "1 of 1", at +3 s (the next sample), so the clear took between 2 and 3 s, inside the 4 s target. Nothing ran.
 
 Not run:
 
