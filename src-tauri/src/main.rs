@@ -63,6 +63,8 @@ struct PanelLayout {
     robot_y: f64,
     /// The panel sits below the robot rather than above it.
     panel_below: bool,
+    /// The window's height, so the page can fit the panel beside the robot.
+    window_h: f64,
 }
 
 /// A poisoned lock must not take a thread down with it.
@@ -99,6 +101,7 @@ fn set_panel(
         robot_x: off.0 as f64 / scale,
         robot_y: off.1 as f64 / scale,
         panel_below,
+        window_h: PANEL_H,
     };
 
     if open {

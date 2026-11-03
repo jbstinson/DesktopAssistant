@@ -75,8 +75,9 @@ pub fn panel_place(
     room: i32,
 ) -> PanelPlace {
     let (x, y) = panel_rect((robot.0, robot.1 - room), monitor, panel, (robot_size.0, robot_size.1 + room));
-    // The robot's middle in the window's top half means the panel has room below it.
-    let below = (robot.1 - y) + robot_size.1 / 2 < panel.1 / 2;
+    // The panel goes on the side with more room: below the robot, or above its hat room.
+    let top = robot.1 - y;
+    let below = panel.1 - (top + robot_size.1) >= top - room;
     PanelPlace { x, y, below }
 }
 
@@ -195,6 +196,18 @@ mod tests {
         let p = panel_place((10, 30), MON, HAT_PANEL, ROBOT, 30);
         assert_eq!((p.y, p.below), (0, true));
         assert_eq!(30 - p.y, 30);
+    }
+
+    #[test]
+    fn short_screen_puts_the_panel_on_the_roomier_side() {
+        // A 600 px work area can't fit robot, hat room and a full panel on either side.
+        let short = (0, 0, 1366, 600);
+        // Robot 190 px down in the clamped window: 160 px above (after the hat room), 180 below.
+        let p = panel_place((10, 190), short, HAT_PANEL, ROBOT, 30);
+        assert_eq!((p.y, p.below), (0, true));
+        // Robot 290 px down: 260 px above, 80 below.
+        let p = panel_place((10, 290), short, HAT_PANEL, ROBOT, 30);
+        assert_eq!((p.y, p.below), (0, false));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { mountCharacter } from "./character.svg.js";
-import { mountPanel } from "./panel.js";
+import { mountPanel, panelBox } from "./panel.js";
 import { mountApproval } from "./approval.js";
 import { hatMarkup } from "./hats.js";
 
@@ -8,10 +8,8 @@ const { listen } = window.__TAURI__.event;
 
 const { getCurrentWindow } = window.__TAURI__.window;
 
-const ROBOT = 140;
 // A press held this long drags the window; a shorter one is a click.
 const DRAG_MS = 150;
-const PANEL_H = 332;
 
 const robot = document.getElementById("robot");
 const parts = mountCharacter(robot);
@@ -55,9 +53,10 @@ async function applyPanel(want) {
     if (open) {
       robot.style.left = `${layout.robot_x}px`;
       robot.style.top = `${layout.robot_y}px`;
-      // Panel below the robot (which has its hat room above it), or above it at the window top.
-      panelEl.style.top = layout.panel_below ? `${layout.robot_y + ROBOT + 8}px` : "8px";
-      panelEl.style.height = `${PANEL_H}px`;
+      // Panel below the robot, or above it clear of the hat room; shorter on a short screen.
+      const box = panelBox(layout.robot_y, layout.window_h, layout.panel_below);
+      panelEl.style.top = `${box.top}px`;
+      panelEl.style.height = `${box.height}px`;
     } else {
       robot.style.left = robot.style.top = "";
     }
