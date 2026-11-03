@@ -1,9 +1,12 @@
 // The robot's artwork. Code elsewhere only sets body[data-state]; poses and
 // animations live in character.css and target the ids below. To swap the art,
-// replace this file and character.css and keep the same ids.
+// replace this file and character.css and keep the same ids. The month's hat goes in #hat.
+
+import { HAT_DEFS } from "./hats.js";
 
 const SVG = `
 <svg id="character" viewBox="0 0 140 140" width="140" height="140" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  ${HAT_DEFS}
   <g id="keys">
     <rect x="34" y="123" width="72" height="9" rx="3" fill="#475569"/>
     <g fill="#cbd5e1">
@@ -57,8 +60,10 @@ const SVG = `
   </g>
 
   <g id="head">
-    <line x1="70" y1="24" x2="70" y2="12" stroke="#0f766e" stroke-width="3" stroke-linecap="round"/>
-    <circle cx="70" cy="10" r="5" fill="#f59e0b"/>
+    <g id="antenna">
+      <line x1="70" y1="24" x2="70" y2="12" stroke="#0f766e" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="70" cy="10" r="5" fill="#f59e0b"/>
+    </g>
     <rect x="26" y="22" width="88" height="60" rx="24" fill="#2dd4bf"/>
     <rect x="36" y="32" width="68" height="40" rx="16" fill="#0f172a"/>
     <g id="eyes">
@@ -70,6 +75,7 @@ const SVG = `
       </g>
     </g>
     <path d="M62 64 Q70 69 78 64" fill="none" stroke="#67e8f9" stroke-width="2.5" stroke-linecap="round"/>
+    <g id="hat"></g>
   </g>
 
   <g id="think" fill="#94a3b8">
@@ -98,5 +104,5 @@ const SVG = `
 /** Injects the character into `container` and returns the elements the app updates. */
 export function mountCharacter(container) {
   container.innerHTML = SVG;
-  return { badgeCount: container.querySelector("#badge-count") };
+  return { badgeCount: container.querySelector("#badge-count"), hat: container.querySelector("#hat") };
 }

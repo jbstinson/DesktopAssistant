@@ -4,7 +4,9 @@
 html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
 body { display: grid; place-items: center; }
 #robot { width: 140px; height: 140px; user-select: none; }
-#character { display: block; }
+/* Hats rise above the viewBox, into the room the window leaves above the robot. */
+#character { display: block; overflow: visible; }
+[data-hat="on"] #antenna { opacity: 0; }
 
 /* Pieces that rotate pivot on a point in the 140x140 viewBox. */
 #head { transform-box: view-box; transform-origin: 70px 82px; }

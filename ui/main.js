@@ -1,6 +1,7 @@
 import { mountCharacter } from "./character.svg.js";
 import { mountPanel } from "./panel.js";
 import { mountApproval } from "./approval.js";
+import { hatMarkup } from "./hats.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -121,6 +122,15 @@ window.addEventListener("mouseup", (e) => {
 // While hidden, a class stops every CSS animation.
 listen("visibility", (e) => document.body.classList.toggle("paused", !e.payload));
 
+// The hat is redrawn only when the month or the choice changes. The markup is the app's own art.
+let hatShown;
+function wearHat(month) {
+  if (month === hatShown) return;
+  hatShown = month;
+  parts.hat.innerHTML = hatMarkup(month);
+  document.body.dataset.hat = parts.hat.innerHTML ? "on" : "off";
+}
+
 let gotEvent = false;
 
 function apply(snap) {
@@ -129,6 +139,7 @@ function apply(snap) {
   body.dataset.multi = String(snap.waiting > 1);
   body.dataset.warning = String(Boolean(snap.warning));
   parts.badgeCount.textContent = snap.waiting > 1 ? String(snap.waiting) : "";
+  wearHat(snap.hat ?? null);
   robot.title = snap.warning || "";
   body.dataset.request = String(Boolean(snap.request));
   followRequests(snap);
