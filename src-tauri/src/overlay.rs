@@ -58,6 +58,28 @@ pub fn panel_rect(
     (x.min(mx + mw - panel.0).max(mx), y.min(my + mh - panel.1).max(my))
 }
 
+/// Where the panel window goes, and whether the panel sits below the robot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PanelPlace {
+    pub x: i32,
+    pub y: i32,
+    pub below: bool,
+}
+
+/// `panel_rect` for a robot with `room` pixels kept free above it for a hat.
+pub fn panel_place(
+    robot: (i32, i32),
+    monitor: (i32, i32, i32, i32),
+    panel: (i32, i32),
+    robot_size: (i32, i32),
+    room: i32,
+) -> PanelPlace {
+    let (x, y) = panel_rect((robot.0, robot.1 - room), monitor, panel, (robot_size.0, robot_size.1 + room));
+    // The robot's middle in the window's top half means the panel has room below it.
+    let below = (robot.1 - y) + robot_size.1 / 2 < panel.1 / 2;
+    PanelPlace { x, y, below }
+}
+
 /// The area the panel must stay in: the current monitor's work area, else the primary's, else
 /// no limit at all (only when the system reports no monitors).
 pub fn area_or_primary(
@@ -151,6 +173,34 @@ mod tests {
 
     const PANEL: (i32, i32) = (360, 480);
     const ROBOT: (i32, i32) = (140, 140);
+
+    const MON: (i32, i32, i32, i32) = (0, 0, 1920, 1080);
+    const HAT_PANEL: (i32, i32) = (360, 510);
+
+    #[test]
+    fn panel_below_leaves_room_for_the_hat() {
+        let p = panel_place((10, 100), MON, HAT_PANEL, ROBOT, 30);
+        assert_eq!(p, PanelPlace { x: 10, y: 70, below: true });
+        assert_eq!(100 - p.y, 30);
+    }
+
+    #[test]
+    fn panel_above_puts_the_robot_at_the_bottom() {
+        let p = panel_place((10, 900), MON, HAT_PANEL, ROBOT, 30);
+        assert_eq!(p, PanelPlace { x: 10, y: 900 + 140 - 510, below: false });
+    }
+
+    #[test]
+    fn hat_room_at_the_top_of_the_monitor() {
+        let p = panel_place((10, 30), MON, HAT_PANEL, ROBOT, 30);
+        assert_eq!((p.y, p.below), (0, true));
+        assert_eq!(30 - p.y, 30);
+    }
+
+    #[test]
+    fn hat_room_keeps_the_left_growth_rule() {
+        assert_eq!(panel_place((1770, 100), MON, HAT_PANEL, ROBOT, 30).x, 1770 + 140 - 360);
+    }
 
     #[test]
     fn panel_grows_right_and_down_from_top_left_robot() {

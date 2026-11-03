@@ -55,8 +55,8 @@ async function applyPanel(want) {
     if (open) {
       robot.style.left = `${layout.robot_x}px`;
       robot.style.top = `${layout.robot_y}px`;
-      // Robot at the top of the window: panel below it; otherwise panel above.
-      panelEl.style.top = layout.robot_y > 0 ? "8px" : `${ROBOT + 8}px`;
+      // Panel below the robot (which has its hat room above it), or above it at the window top.
+      panelEl.style.top = layout.panel_below ? `${layout.robot_y + ROBOT + 8}px` : "8px";
       panelEl.style.height = `${PANEL_H}px`;
     } else {
       robot.style.left = robot.style.top = "";

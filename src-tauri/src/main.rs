@@ -44,14 +44,16 @@ type SharedRegion = Arc<Mutex<overlay::HitRegion>>;
 const CLOSED_SIZE: f64 = 200.0;
 const ROBOT_SIZE: f64 = 140.0;
 const PANEL_W: f64 = 360.0;
-const PANEL_H: f64 = 480.0;
+const PANEL_H: f64 = 510.0;
 const ROBOT_HIT_RADIUS: f64 = 70.0;
+/// Kept free above the robot for the month's hat. The closed window's inset already gives this.
+const HAT_ROOM: f64 = 30.0;
 
-/// Where the robot sits inside the window while the panel is open (physical pixels), or
-/// None while closed.
+/// Where the robot sits inside the window while the panel is open (physical pixels) and
+/// whether the panel is below it, or None while closed.
 #[derive(Default)]
 struct PanelState {
-    robot_offset: Option<(i32, i32)>,
+    robot_offset: Option<((i32, i32), bool)>,
 }
 
 /// Robot position inside the open window, in CSS pixels.
@@ -59,6 +61,8 @@ struct PanelState {
 struct PanelLayout {
     robot_x: f64,
     robot_y: f64,
+    /// The panel sits below the robot rather than above it.
+    panel_below: bool,
 }
 
 /// A poisoned lock must not take a thread down with it.
@@ -91,14 +95,15 @@ fn set_panel(
     let pos = window.outer_position().map_err(|e| e.to_string())?;
     let mut state = lock(&state);
     let closed_inset = px((CLOSED_SIZE - ROBOT_SIZE) / 2.0);
-    let layout = |off: (i32, i32)| PanelLayout {
+    let layout = |off: (i32, i32), panel_below: bool| PanelLayout {
         robot_x: off.0 as f64 / scale,
         robot_y: off.1 as f64 / scale,
+        panel_below,
     };
 
     if open {
-        if let Some(off) = state.robot_offset {
-            return Ok(layout(off));
+        if let Some((off, below)) = state.robot_offset {
+            return Ok(layout(off, below));
         }
         let robot = (pos.x + closed_inset, pos.y + closed_inset);
         // The work area, so the panel stays clear of the taskbar. With no current monitor,
@@ -110,20 +115,20 @@ fn set_panel(
         let primary = monitor_rects(&window).first().map(|r| (r.x, r.y, r.w, r.h));
         let monitor = overlay::area_or_primary(current, primary);
         let (w, h) = (px(PANEL_W), px(PANEL_H));
-        let (x, y) = overlay::panel_rect(robot, monitor, (w, h), (px(ROBOT_SIZE), px(ROBOT_SIZE)));
-        overlay::set_bounds(&window, x, y, w, h)?;
+        let place = overlay::panel_place(robot, monitor, (w, h), (px(ROBOT_SIZE), px(ROBOT_SIZE)), px(HAT_ROOM));
+        overlay::set_bounds(&window, place.x, place.y, w, h)?;
         *lock(&region) = overlay::HitRegion::Full;
-        let off = (robot.0 - x, robot.1 - y);
-        state.robot_offset = Some(off);
-        Ok(layout(off))
+        let off = (robot.0 - place.x, robot.1 - place.y);
+        state.robot_offset = Some((off, place.below));
+        Ok(layout(off, place.below))
     } else {
-        if let Some(off) = state.robot_offset.take() {
+        if let Some((off, _)) = state.robot_offset.take() {
             let (x, y) = (pos.x + off.0 - closed_inset, pos.y + off.1 - closed_inset);
             let side = px(CLOSED_SIZE);
             *lock(&region) = closed_region(scale);
             overlay::set_bounds(&window, x, y, side, side)?;
         }
-        Ok(layout((closed_inset, closed_inset)))
+        Ok(layout((closed_inset, closed_inset), true))
     }
 }
 

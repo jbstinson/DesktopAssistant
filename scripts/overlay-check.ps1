@@ -135,15 +135,17 @@ try {
   [U]::GetWindowRect($hwnd, [ref]$p) | Out-Null
   $pw = $p.R - $p.L; $ph = $p.B - $p.T
   "panel opened: rect=$(Rect)"
-  "panel window is 360x480 css px: " + (($pw -eq [int](360 * $s)) -and ($ph -eq [int](480 * $s)))
+  "panel window is 360x510 css px: " + (($pw -eq [int](360 * $s)) -and ($ph -eq [int](510 * $s)))
   $style = [U]::GetExStyle($hwnd, -20).ToInt64()
   "noactivate kept with panel open: " + [bool]($style -band 0x8000000)
   [System.Windows.Forms.SendKeys]::SendWait("x"); Pump 200
   "typing still lands in app: " + ($box.Text -eq "x")
 
   # 2. Clicking inside the panel (the part away from the robot) is taken by the panel.
+  # The robot keeps 30 css px of hat room above it, so with the panel below, the window top is that far above the robot.
   $robotTop = $y + [int](30 * $s)
-  if ($p.T -eq $robotTop) { $py = $p.T + [int]((140 * $s + $ph) / 2) } else { $py = $p.T + [int](($ph - 140 * $s) / 2) }
+  $robotAndRoom = [int](170 * $s)
+  if ($p.T -eq $robotTop - [int](30 * $s)) { $py = $p.T + [int](($robotAndRoom + $ph) / 2) } else { $py = $p.T + [int](($ph - $robotAndRoom) / 2) }
   $before = $script:underClicks
   Click ($p.L + [int]($pw / 2)) $py
   "panel took the click (under-window count unchanged): " + ($script:underClicks -eq $before)
@@ -229,7 +231,7 @@ try {
   Pump 2000
   [U]::GetWindowRect($hwnd, [ref]$r) | Out-Null
   $pw = $r.R - $r.L; $ph = $r.B - $r.T
-  "request opened the panel by itself: " + (($pw -eq [int](360 * $s)) -and ($ph -eq [int](480 * $s))) + " (rect=$(Rect))"
+  "request opened the panel by itself: " + (($pw -eq [int](360 * $s)) -and ($ph -eq [int](510 * $s))) + " (rect=$(Rect))"
   "auto-open kept focus: " + ([U]::GetForegroundWindow() -eq $typing) + " (foreground is $(Fg))"
   [System.Windows.Forms.SendKeys]::SendWait("a"); Pump 200
   "typing still lands after auto-open: " + ($box.Text -eq "a")
