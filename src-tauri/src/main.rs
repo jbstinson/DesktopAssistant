@@ -376,7 +376,8 @@ fn main() {
 
             let voice_menu = tray::VoiceMenu { names: voices, default: default_voice, choice, path: voice_path };
             let approve_menu = tray::ApproveMenu { approvals, path: approvals_path };
-            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on, voice_menu, approve_menu)?;
+            let hat_menu = tray::HatMenu { path: hats_path() };
+            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on, voice_menu, approve_menu, hat_menu)?;
 
             // Ctrl+Alt+D shows or hides the character. If another app owns the key, say so
             // in the warning and carry on.

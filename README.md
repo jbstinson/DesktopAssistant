@@ -37,6 +37,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 - **Do not disturb**: mutes sound and speech. The robot still animates.
 - **Approve in window**: ticked by default. When on, permission requests can be answered in the panel (see Approvals). Turning it off hands every held request back to Claude Code at once. Your choice is remembered.
 - **Voice**: lists the Windows voices installed on this PC. Picking one speaks a short sample and remembers your choice in `%APPDATA%\DesktopAssistant\voice.txt`. The sample is muted during Do not disturb. If a saved voice is uninstalled, the Windows default is used.
+- **Hats**: one tick per month. A ticked month's hat appears on the robot for that whole month (see Hats). Your choices are remembered.
 - **Connect to Claude Code**: ticked when the hooks are installed. Click again to remove only our entries.
 - **Open rules file**: opens `rules.toml` in Notepad.
 - **Quit**.
@@ -47,7 +48,28 @@ Running sessions pick up new hooks only when they start, so restart any session 
 
 ## Where files live
 
-Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time) and `endpoint.json` (the local port and token that `da-hook` uses).
+Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time), `hats.json` (months whose hat is off) and `endpoint.json` (the local port and token that `da-hook` uses).
+
+## Hats
+
+The robot wears a hat for the month on your PC's clock. The hat changes within a minute of midnight on the 1st, or of the PC waking up.
+
+| Month | Hat |
+|---|---|
+| January | New Year party cone |
+| February | Valentine's heart headband |
+| March | St. Patrick's green top hat |
+| April | Easter bunny ears |
+| May | Flower crown |
+| June | Straw sun hat |
+| July | Stars-and-stripes top hat |
+| August | Beach bucket hat |
+| September | Fall knit beanie with a falling leaf |
+| October | Halloween witch hat |
+| November | Thanksgiving pilgrim hat |
+| December | Santa hat |
+
+Untick a month under **Hats** in the tray to turn its hat off. The robot then looks as it always has, antenna and all. The choice is saved in `%APPDATA%\DesktopAssistant\hats.json` as the months that are off, for example `{"off":[2,10]}`. A missing or unreadable file means every hat is on.
 
 ## Rules file
 

@@ -5,6 +5,7 @@
 
 use crate::approvals::{self, Approvals};
 use crate::delivery::Queue;
+use crate::hats::{self, Months};
 use crate::rules::{Alert, Tier};
 use crate::voice::{self, Choice};
 use crate::installer::{self, Change};
@@ -100,6 +101,13 @@ pub struct TrayItems {
     approve: CheckMenuItem<Wry>,
     hooks: CheckMenuItem<Wry>,
     voices: Vec<(String, CheckMenuItem<Wry>)>,
+    /// January first.
+    hats: Vec<CheckMenuItem<Wry>>,
+}
+
+/// Where the Hats choices are kept.
+pub struct HatMenu {
+    pub path: PathBuf,
 }
 
 /// What the Voice submenu shows and where a pick is kept.
@@ -205,6 +213,34 @@ fn toggle_approve(items: &TrayItems, core: &Core, publish: &Publish, menu: &Appr
     publish();
 }
 
+/// `on` with one month's hat (1-12) flipped. Any other month leaves it unchanged.
+pub fn toggled(mut on: Months, month: u8) -> Months {
+    if (1..=12).contains(&month) {
+        on[month as usize - 1] ^= true;
+    }
+    on
+}
+
+/// Flips the month's hat, ticks the item to match, remembers the choice, and redraws.
+fn toggle_hat(items: &TrayItems, core: &Core, publish: &Publish, menu: &HatMenu, month: u8) {
+    if !(1..=12).contains(&month) {
+        return;
+    }
+    let on = {
+        let mut core = lock(core);
+        let on = toggled(core.hats(), month);
+        core.set_hats(on);
+        on
+    };
+    if let Some(item) = items.hats.get(month as usize - 1) {
+        let _ = item.set_checked(on[month as usize - 1]);
+    }
+    if let Err(e) = hats::save(&menu.path, &on) {
+        eprintln!("hats: cannot save choice: {e}");
+    }
+    publish();
+}
+
 /// Passes on the status already held. The status is bound first so the core lock is free when
 /// `finish` runs: `finish` locks it again, and a guard held across that call would never wake.
 fn with_current_status(core: &Core, finish: impl FnOnce(HookStatus)) {
@@ -267,6 +303,7 @@ pub fn install(
     hooks_on: bool,
     voice_menu: VoiceMenu,
     approve_menu: ApproveMenu,
+    hat_menu: HatMenu,
 ) -> tauri::Result<()> {
     let toggle = MenuItem::with_id(app, "toggle", "Hide", true, None::<&str>)?;
     let quiet = CheckMenuItem::with_id(app, "quiet", "Do not disturb", true, false, None::<&str>)?;
@@ -289,11 +326,22 @@ pub fn install(
     if voices.is_empty() {
         voice_submenu.append(&MenuItem::new(app, "No voices found", false, None::<&str>)?)?;
     }
+    let hat_submenu = Submenu::new(app, "Hats", true)?;
+    let hats = {
+        let on = lock(&core).hats();
+        let mut items = Vec::new();
+        for (i, name) in hats::NAMES.iter().enumerate() {
+            let item = CheckMenuItem::with_id(app, format!("hat:{}", i + 1), *name, true, on[i], None::<&str>)?;
+            hat_submenu.append(&item)?;
+            items.push(item);
+        }
+        items
+    };
     let rules = MenuItem::with_id(app, "rules", "Open rules file", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&toggle, &quiet, &approve, &voice_submenu, &hooks, &rules, &sep, &quit_item])?;
-    app.manage(TrayItems { toggle, quiet, approve, hooks, voices });
+    let menu = Menu::with_items(app, &[&toggle, &quiet, &approve, &voice_submenu, &hat_submenu, &hooks, &rules, &sep, &quit_item])?;
+    app.manage(TrayItems { toggle, quiet, approve, hooks, voices, hats });
 
     let mut builder = TrayIconBuilder::new().tooltip("DesktopAssistant").menu(&menu);
     if let Some(icon) = app.default_window_icon() {
@@ -320,6 +368,8 @@ pub fn install(
             id => {
                 if let Some(name) = id.strip_prefix("voice:") {
                     pick_voice(&app.state::<TrayItems>(), &voice_menu, &queue, name);
+                } else if let Some(month) = id.strip_prefix("hat:").and_then(|m| m.parse::<u8>().ok()) {
+                    toggle_hat(&app.state::<TrayItems>(), &core, &publish, &hat_menu, month);
                 }
             }
         })
@@ -336,6 +386,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn toggling_a_month_flips_only_that_month() {
+        let on = toggled(hats::ALL_ON, 10);
+        assert!(!on[9]);
+        assert_eq!(on.iter().filter(|m| **m).count(), 11);
+        assert_eq!(toggled(on, 10), hats::ALL_ON);
+    }
+
+    #[test]
+    fn toggling_a_month_outside_1_to_12_changes_nothing() {
+        let on = toggled(hats::ALL_ON, 3);
+        assert_eq!(toggled(on, 0), on);
+        assert_eq!(toggled(on, 13), on);
     }
 
     /// A fake hook exe next to a settings path inside a fresh temp dir.
