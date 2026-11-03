@@ -52,7 +52,7 @@ The user wants the character to have more than one look. A hat adds a seasonal t
 - **Clicks.** The hat is not clickable. The robot's hit area stays the circle on the body it is today. *(Claude's call.)*
 - **Marks win.** The badge, alarm, thinking dots, "zzz" and bell are drawn above the hat. Where a hat would hide most of one, change that hat's art. *(Claude's call.)*
 - **Head motion.** The headroom covers the hat's tip at the head's widest tilt and the startle animation, so no hat is ever clipped. *(Claude's call.)*
-- **Month check.** One timer set for the next local midnight, re-checked when the PC wakes from sleep. No check runs more than once a minute. *(Claude's call.)*
+- **Month check.** A background thread compares the local month once a minute, so the hat changes within a minute of midnight on the 1st and within a minute of the PC waking. No check runs more often. *(Claude's call: simpler than catching wake messages, and the cost is negligible.)*
 - **Tray items.** Plain ticks, January to December, with no marker for the current month and no shortcuts. *(Claude's call.)*
 - **Antenna.** Hidden while a hat is shown; back when there is no hat.
 - **All poses.** The hat stays on in every state: asleep, idle, typing, reading, thinking, done, needs-you and error.
