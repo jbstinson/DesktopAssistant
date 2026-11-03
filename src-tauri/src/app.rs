@@ -2,6 +2,7 @@
 //! mutex and feeds it events, rule reloads and timer ticks.
 
 use crate::events::{HookEvent, PermissionAsk, Polled};
+use crate::hats::{self, Months};
 use crate::jump;
 use crate::pending::{Pending, Poll, Request};
 use crate::permission::{self, Choice, Kind};
@@ -57,6 +58,8 @@ pub struct Snapshot {
     pub request: Option<RequestView>,
     /// Requests still waiting, the current one included.
     pub request_count: usize,
+    /// The month (1-12) whose hat the robot wears, or None for no hat.
+    pub hat: Option<u8>,
 }
 
 /// Leaves the request out, so a debug print can never show a command.
@@ -70,6 +73,7 @@ impl std::fmt::Debug for Snapshot {
             .field("quiet", &self.quiet)
             .field("hooks_on", &self.hooks_on)
             .field("request_count", &self.request_count)
+            .field("hat", &self.hat)
             .finish_non_exhaustive()
     }
 }
@@ -103,6 +107,9 @@ pub struct Core {
     quiet: bool,
     hooks_on: bool,
     hooks_stale: bool,
+    hats: Months,
+    /// The local month, once main.rs has read it.
+    month: Option<u8>,
 }
 
 /// Shown when our hook entries exist but are not current: a different da-hook.exe or an old timeout.
@@ -141,6 +148,8 @@ impl Core {
             quiet: false,
             hooks_on: false,
             hooks_stale: false,
+            hats: hats::ALL_ON,
+            month: None,
         }
     }
 
@@ -261,6 +270,25 @@ impl Core {
 
     /// Do-not-disturb. The sound queue is muted separately. Turning it on hands every held
     /// request back.
+    pub fn set_hats(&mut self, on: Months) {
+        self.hats = on;
+    }
+
+    pub fn hats(&self) -> Months {
+        self.hats
+    }
+
+    /// Records the local month. True when that changes the hat on screen.
+    pub fn set_month(&mut self, month: u8) -> bool {
+        let before = self.hat();
+        self.month = Some(month);
+        self.hat() != before
+    }
+
+    fn hat(&self) -> Option<u8> {
+        self.month.and_then(|m| hats::shown(m, &self.hats))
+    }
+
     pub fn set_quiet(&mut self, quiet: bool) {
         self.quiet = quiet;
         if quiet {
@@ -361,6 +389,7 @@ impl Core {
             hooks_on: self.hooks_on,
             request,
             request_count: self.pending.waiting_count(),
+            hat: self.hat(),
         }
     }
 }
@@ -385,6 +414,56 @@ mod tests {
             terminal_pid: Some(7),
             agent_id: None,
         }
+    }
+
+    #[test]
+    fn no_hat_until_the_month_is_known() {
+        assert_eq!(Core::new(defaults(), None).snapshot(0).hat, None);
+    }
+
+    #[test]
+    fn the_snapshot_wears_the_months_hat() {
+        let mut core = Core::new(defaults(), None);
+        assert!(core.set_month(10));
+        assert_eq!(core.snapshot(0).hat, Some(10));
+        assert!(!core.set_month(10));
+        assert!(core.set_month(11));
+        assert_eq!(core.snapshot(0).hat, Some(11));
+    }
+
+    #[test]
+    fn turning_the_months_hat_off_and_on() {
+        let mut core = Core::new(defaults(), None);
+        core.set_month(10);
+        let mut on = crate::hats::ALL_ON;
+        on[9] = false;
+        core.set_hats(on);
+        assert_eq!(core.hats(), on);
+        assert_eq!(core.snapshot(0).hat, None);
+        // A new month whose hat is also off changes nothing on screen.
+        on[10] = false;
+        core.set_hats(on);
+        assert!(!core.set_month(11));
+        core.set_hats(crate::hats::ALL_ON);
+        assert_eq!(core.snapshot(0).hat, Some(11));
+    }
+
+    #[test]
+    fn the_hat_ignores_hidden_and_quiet() {
+        let mut core = Core::new(defaults(), None);
+        core.set_month(10);
+        core.set_visible(false);
+        core.set_quiet(true);
+        assert_eq!(core.snapshot(0).hat, Some(10));
+    }
+
+    #[test]
+    fn the_hat_is_a_number_or_null_for_the_page() {
+        let mut core = Core::new(defaults(), None);
+        core.set_month(10);
+        assert_eq!(serde_json::to_value(core.snapshot(0)).unwrap()["hat"], 10);
+        core.set_hats([false; 12]);
+        assert!(serde_json::to_value(core.snapshot(0)).unwrap()["hat"].is_null());
     }
 
     #[test]

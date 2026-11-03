@@ -4,6 +4,7 @@ mod app;
 mod approvals;
 mod delivery;
 mod events;
+mod hats;
 mod jump;
 mod listener;
 mod overlay;
@@ -29,6 +30,8 @@ use tauri::{Emitter, Manager, PhysicalPosition, State, WebviewWindow, WindowEven
 const TICK: Duration = Duration::from_secs(30);
 /// How often held permission requests are checked for expiry.
 const PERMISSION_TICK: Duration = Duration::from_secs(1);
+/// How often the month is checked for the hat.
+const MONTH_TICK: Duration = Duration::from_secs(60);
 
 const HOTKEY_WARNING: &str = "The Ctrl+Alt+D hotkey is taken by another app";
 const HOOKS_WARNING: &str = "Hooks cannot connect: the local listener failed to start";
@@ -203,6 +206,10 @@ fn state_path() -> std::path::PathBuf {
     paths::data_dir().join("state.json")
 }
 
+fn hats_path() -> std::path::PathBuf {
+    paths::data_dir().join("hats.json")
+}
+
 /// Waits until the window has stopped moving, then saves where it ended up. The panel
 /// moves the window too, so nothing is saved while it is open.
 const SAVE_DELAY: Duration = Duration::from_millis(400);
@@ -276,6 +283,8 @@ fn main() {
                 let mut c = lock(&core);
                 c.set_approve_in_window(approvals.enabled);
                 c.set_hold(approvals.hold_seconds);
+                c.set_hats(hats::load(&hats_path()));
+                c.set_month(hats::local_month());
             }
             app.manage(core.clone());
 
@@ -292,6 +301,19 @@ fn main() {
                 })
             };
             app.manage(publish.clone());
+
+            // The hat follows the local month: checked once a minute, which also catches the
+            // PC waking from sleep.
+            std::thread::spawn({
+                let (core, publish) = (core.clone(), publish.clone());
+                move || loop {
+                    std::thread::sleep(MONTH_TICK);
+                    let changed = lock(&core).set_month(hats::local_month());
+                    if changed {
+                        publish();
+                    }
+                }
+            });
 
             let voice_path = paths::data_dir().join("voice.txt");
             let (voices, default_voice) = voice::installed();
