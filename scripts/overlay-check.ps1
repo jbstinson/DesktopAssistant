@@ -237,10 +237,11 @@ try {
   "typing still lands after auto-open: " + ($box.Text -eq "a")
   $style = [U]::GetExStyle($hwnd, -20).ToInt64()
   "noactivate kept with a request showing: " + [bool]($style -band 0x8000000)
-  # Deny sits at the far left of the button row, 50 px above the panel's bottom when the panel
-  # is below the robot, otherwise 195 px above the window's bottom.
+  # Deny sits at the far left of the button row, 50 px above the window's bottom when the panel
+  # is below the robot (the window then starts at the hat room above the robot), otherwise
+  # 225 px above it.
   $denyX = $r.L + [int](38 * $s)
-  $denyY = if ($r.T -eq $y + [int](30 * $s) -or $r.T -eq $y) { $r.T + [int](430 * $s) } else { $r.T + [int](285 * $s) }
+  $denyY = if ($r.T -gt $y - [int](170 * $s)) { $r.T + [int](460 * $s) } else { $r.T + [int](285 * $s) }
   # Always allow asks twice. A double-click on it must answer nothing: the check that replaces the
   # row keeps Confirm at the far left, clear of where Always allow was, and Cancel is harmless.
   $aaX = $r.L + [int](299 * $s)

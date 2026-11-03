@@ -247,3 +247,21 @@ Needs you:
 - The Claude desktop app's Code tab: answering in the panel, and the fallback after the hold ends or Answer in Claude Code.
 - Subagent sessions.
 - The Stage 1 tray and jump checks (jump list, Windows Terminal, desktop app, the Stage 1 items listed above).
+
+## Verification results (Monthly hats)
+
+Run on Windows 11 at 100% scaling, in November, with the app against a temporary APPDATA and USERPROFILE.
+
+Checked and passing:
+
+- Every hat in every pose (`scripts/hats-preview.html`, served by `node scripts/serve-ui.mjs`): each hat sits on the head and tilts with it, the witch hat's tip (the tallest) stays inside the 200 px window at the asleep and thinking tilts, the badge, alarm, thinking dots and "zzz" draw over the hat and stay readable, and the antenna shows only with no hat.
+- `hats.json` with November off: no hat, antenna showing. With the file removed: the pilgrim hat, antenna hidden.
+- Panel opened with the robot at the top of the screen: the window starts 30 px above the robot and the whole hat shows, with the panel below. At the bottom: the window grows up, and the hat sits clear of the panel.
+- `scripts\overlay-check.ps1` on the new build: focus, click-through, the 360x510 panel, auto-open, the button lock and answering all True. Hotkey and drag were False on this build and equally False on the previous build, because the copy of the app already running on this PC owned Ctrl+Alt+D ("hotkey failed to register").
+- Resources, whole process tree, hat showing: asleep 0.00% CPU, 166 MB private, 0% GPU; animating 0.00% CPU, 166 MB private, 0.29% GPU average (0.37% peak). Same as before the hats.
+
+Needs you:
+
+- The tray Hats submenu: untick and tick the current month and watch the hat go and come back.
+- The hat changing on a real 1st of the month (or after moving the PC clock).
+- 125% display scaling.
