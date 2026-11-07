@@ -33,12 +33,11 @@
 [data-avatar="dog"][data-state="thinking"] #head { transform: rotate(-6deg); }
 [data-avatar="dog"][data-state="thinking"] #eyes { animation: look-up 3s steps(10) infinite; }
 
-/* needs-you: ears up, waving a paw, tail going. */
+/* needs-you: ears up, waving a paw. */
 [data-avatar="dog"][data-state="needs-you"] #eyes-shape { transform: scale(1.12); }
 [data-avatar="dog"][data-state="needs-you"] #ear-left { transform: rotate(14deg); }
 [data-avatar="dog"][data-state="needs-you"] #ear-right { transform: rotate(-14deg); }
 [data-avatar="dog"][data-state="needs-you"] #paw-right { transform: rotate(-120deg); animation: dog-wave 0.7s steps(5) infinite alternate; }
-[data-avatar="dog"][data-state="needs-you"] #tail { animation: dog-wag 0.6s step-end infinite; }
 
 /* done: paw up holding the bell, rings it once. */
 [data-avatar="dog"][data-state="done"] #eyes-shape { transform: scaleY(0.55); }
