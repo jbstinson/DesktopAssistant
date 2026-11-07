@@ -1,16 +1,15 @@
 import { mountCharacter } from "./character.svg.js";
-import { mountPanel } from "./panel.js";
+import { mountPanel, panelBox } from "./panel.js";
 import { mountApproval } from "./approval.js";
+import { hatMarkup } from "./hats.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const { getCurrentWindow } = window.__TAURI__.window;
 
-const ROBOT = 140;
 // A press held this long drags the window; a shorter one is a click.
 const DRAG_MS = 150;
-const PANEL_H = 332;
 
 const robot = document.getElementById("robot");
 const parts = mountCharacter(robot);
@@ -54,9 +53,10 @@ async function applyPanel(want) {
     if (open) {
       robot.style.left = `${layout.robot_x}px`;
       robot.style.top = `${layout.robot_y}px`;
-      // Robot at the top of the window: panel below it; otherwise panel above.
-      panelEl.style.top = layout.robot_y > 0 ? "8px" : `${ROBOT + 8}px`;
-      panelEl.style.height = `${PANEL_H}px`;
+      // Panel below the robot, or above it clear of the hat room; shorter on a short screen.
+      const box = panelBox(layout.robot_y, layout.window_h, layout.panel_below);
+      panelEl.style.top = `${box.top}px`;
+      panelEl.style.height = `${box.height}px`;
     } else {
       robot.style.left = robot.style.top = "";
     }
@@ -121,6 +121,15 @@ window.addEventListener("mouseup", (e) => {
 // While hidden, a class stops every CSS animation.
 listen("visibility", (e) => document.body.classList.toggle("paused", !e.payload));
 
+// The hat is redrawn only when the month or the choice changes. The markup is the app's own art.
+let hatShown;
+function wearHat(month) {
+  if (month === hatShown) return;
+  hatShown = month;
+  parts.hat.innerHTML = hatMarkup(month);
+  document.body.dataset.hat = parts.hat.innerHTML ? "on" : "off";
+}
+
 let gotEvent = false;
 
 function apply(snap) {
@@ -129,6 +138,7 @@ function apply(snap) {
   body.dataset.multi = String(snap.waiting > 1);
   body.dataset.warning = String(Boolean(snap.warning));
   parts.badgeCount.textContent = snap.waiting > 1 ? String(snap.waiting) : "";
+  wearHat(snap.hat ?? null);
   robot.title = snap.warning || "";
   body.dataset.request = String(Boolean(snap.request));
   followRequests(snap);

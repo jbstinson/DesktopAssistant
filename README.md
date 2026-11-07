@@ -37,6 +37,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 - **Do not disturb**: mutes sound and speech. The robot still animates.
 - **Approve in window**: ticked by default. When on, permission requests can be answered in the panel (see Approvals). Turning it off hands every held request back to Claude Code at once. Your choice is remembered.
 - **Voice**: lists the Windows voices installed on this PC. Picking one speaks a short sample and remembers your choice in `%APPDATA%\DesktopAssistant\voice.txt`. The sample is muted during Do not disturb. If a saved voice is uninstalled, the Windows default is used.
+- **Holidays**: **Enabled** turns every holiday hat on or off at once. **Months** has one tick per month; a ticked month's hat appears on the robot for that whole month (see Hats). Your choices are remembered.
 - **Connect to Claude Code**: ticked when the hooks are installed. Click again to remove only our entries.
 - **Open rules file**: opens `rules.toml` in Notepad.
 - **Quit**.
@@ -47,7 +48,28 @@ Running sessions pick up new hooks only when they start, so restart any session 
 
 ## Where files live
 
-Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time) and `endpoint.json` (the local port and token that `da-hook` uses).
+Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time), `hats.json` (the Holidays switch and months whose hat is off) and `endpoint.json` (the local port and token that `da-hook` uses).
+
+## Hats
+
+The robot wears a hat for the month on your PC's clock. The hat changes within a minute of midnight on the 1st, or of the PC waking up.
+
+| Month | Hat |
+|---|---|
+| January | New Year party cone |
+| February | Valentine's heart headband |
+| March | St. Patrick's green top hat |
+| April | Easter bunny ears |
+| May | Flower crown |
+| June | Straw sun hat |
+| July | Stars-and-stripes top hat |
+| August | Beach bucket hat |
+| September | Fall knit beanie with a falling leaf |
+| October | Halloween witch hat |
+| November | Thanksgiving pilgrim hat |
+| December | Santa hat |
+
+In the tray, **Holidays** > **Enabled** turns all hats on or off. Turning it off keeps your month ticks, so turning it back on brings back the same months. To skip only some holidays, untick those months under **Holidays** > **Months**. With no hat, the robot looks as it always has, antenna and all. The choices are saved in `%APPDATA%\DesktopAssistant\hats.json`, for example `{"enabled":true,"off":[2,10]}`. A missing or unreadable file means on with every hat, and a file without `enabled` counts as on.
 
 ## Rules file
 
@@ -225,3 +247,21 @@ Needs you:
 - The Claude desktop app's Code tab: answering in the panel, and the fallback after the hold ends or Answer in Claude Code.
 - Subagent sessions.
 - The Stage 1 tray and jump checks (jump list, Windows Terminal, desktop app, the Stage 1 items listed above).
+
+## Verification results (Monthly hats)
+
+Run on Windows 11 at 100% scaling, in November, with the app against a temporary APPDATA and USERPROFILE.
+
+Checked and passing:
+
+- Every hat in every pose (`scripts/hats-preview.html`, served by `node scripts/serve-ui.mjs`): each hat sits on the head and tilts with it, the witch hat's tip (the tallest) stays inside the 200 px window at the asleep and thinking tilts, the badge, alarm, thinking dots and "zzz" draw over the hat and stay readable, and the antenna shows only with no hat.
+- `hats.json` with November off: no hat, antenna showing. With the file removed: the pilgrim hat, antenna hidden.
+- Panel opened with the robot at the top of the screen: the window starts 30 px above the robot and the whole hat shows, with the panel below. At the bottom: the window grows up, and the hat sits clear of the panel.
+- `scripts\overlay-check.ps1` on the new build: focus, click-through, the 360x510 panel, auto-open, the button lock and answering all True. Hotkey and drag were False on this build and equally False on the previous build, because the copy of the app already running on this PC owned Ctrl+Alt+D ("hotkey failed to register").
+- Resources, whole process tree, hat showing: asleep 0.00% CPU, 166 MB private, 0% GPU; animating 0.00% CPU, 166 MB private, 0.29% GPU average (0.37% peak). Same as before the hats.
+
+Needs you:
+
+- The tray Holidays submenu: untick and tick Enabled, and the current month under Months, and watch the hat go and come back.
+- The hat changing on a real 1st of the month (or after moving the PC clock).
+- 125% display scaling.

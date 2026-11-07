@@ -1,0 +1,50 @@
+<!doctype html>
+<!-- Every hat in every pose, each in a 200x200 cell like the closed window.
+     Serve with scripts/serve-ui.mjs; ES modules don't load from file://. -->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Hats preview</title>
+  <link rel="stylesheet" href="../ui/character.css">
+  <style>
+    html, body { height: auto; overflow: auto; background: #e2e8f0; display: block; }
+    body { font: 12px "Segoe UI", sans-serif; margin: 8px; }
+    table { border-collapse: collapse; }
+    th { font-weight: 600; padding: 2px 6px; }
+    td { padding: 0; }
+    .cell { width: 200px; height: 200px; display: grid; place-items: center; overflow: hidden; outline: 1px dashed #94a3b8; background: #cbd5e1; }
+    .robot { width: 140px; height: 140px; }
+  </style>
+</head>
+<body>
+  <table id="grid"></table>
+  <script type="module">
+    import { mountCharacter } from "../ui/character.svg.js";
+    import { hatMarkup } from "../ui/hats.js";
+
+    const STATES = ["asleep", "idle", "typing", "reading", "thinking", "done", "needs-you", "error"];
+    const NAMES = ["No hat", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const grid = document.getElementById("grid");
+    const head = grid.insertRow();
+    head.insertCell().outerHTML = "<th></th>";
+    for (const s of STATES) head.insertCell().outerHTML = `<th>${s}</th>`;
+    for (let month = 0; month <= 12; month++) {
+      const row = grid.insertRow();
+      row.insertCell().outerHTML = `<th>${NAMES[month]}</th>`;
+      for (const state of STATES) {
+        const cell = document.createElement("div");
+        cell.className = "cell";
+        cell.dataset.state = state;
+        cell.dataset.multi = "true";
+        const robot = document.createElement("div");
+        robot.className = "robot";
+        cell.append(robot);
+        const parts = mountCharacter(robot);
+        parts.badgeCount.textContent = "2";
+        parts.hat.innerHTML = hatMarkup(month || null);
+        cell.dataset.hat = parts.hat.innerHTML ? "on" : "off";
+        row.insertCell().append(cell);
+      }
+    }
+  </script>
+</body>

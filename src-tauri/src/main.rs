@@ -4,6 +4,7 @@ mod app;
 mod approvals;
 mod delivery;
 mod events;
+mod hats;
 mod jump;
 mod listener;
 mod overlay;
@@ -29,6 +30,8 @@ use tauri::{Emitter, Manager, PhysicalPosition, State, WebviewWindow, WindowEven
 const TICK: Duration = Duration::from_secs(30);
 /// How often held permission requests are checked for expiry.
 const PERMISSION_TICK: Duration = Duration::from_secs(1);
+/// How often the month is checked for the hat.
+const MONTH_TICK: Duration = Duration::from_secs(60);
 
 const HOTKEY_WARNING: &str = "The Ctrl+Alt+D hotkey is taken by another app";
 const HOOKS_WARNING: &str = "Hooks cannot connect: the local listener failed to start";
@@ -41,14 +44,16 @@ type SharedRegion = Arc<Mutex<overlay::HitRegion>>;
 const CLOSED_SIZE: f64 = 200.0;
 const ROBOT_SIZE: f64 = 140.0;
 const PANEL_W: f64 = 360.0;
-const PANEL_H: f64 = 480.0;
+const PANEL_H: f64 = 510.0;
 const ROBOT_HIT_RADIUS: f64 = 70.0;
+/// Kept free above the robot for the month's hat. The closed window's inset already gives this.
+const HAT_ROOM: f64 = 30.0;
 
-/// Where the robot sits inside the window while the panel is open (physical pixels), or
-/// None while closed.
+/// Where the robot sits inside the window while the panel is open (physical pixels) and
+/// whether the panel is below it, or None while closed.
 #[derive(Default)]
 struct PanelState {
-    robot_offset: Option<(i32, i32)>,
+    robot_offset: Option<((i32, i32), bool)>,
 }
 
 /// Robot position inside the open window, in CSS pixels.
@@ -56,6 +61,10 @@ struct PanelState {
 struct PanelLayout {
     robot_x: f64,
     robot_y: f64,
+    /// The panel sits below the robot rather than above it.
+    panel_below: bool,
+    /// The window's height, so the page can fit the panel beside the robot.
+    window_h: f64,
 }
 
 /// A poisoned lock must not take a thread down with it.
@@ -88,14 +97,16 @@ fn set_panel(
     let pos = window.outer_position().map_err(|e| e.to_string())?;
     let mut state = lock(&state);
     let closed_inset = px((CLOSED_SIZE - ROBOT_SIZE) / 2.0);
-    let layout = |off: (i32, i32)| PanelLayout {
+    let layout = |off: (i32, i32), panel_below: bool| PanelLayout {
         robot_x: off.0 as f64 / scale,
         robot_y: off.1 as f64 / scale,
+        panel_below,
+        window_h: PANEL_H,
     };
 
     if open {
-        if let Some(off) = state.robot_offset {
-            return Ok(layout(off));
+        if let Some((off, below)) = state.robot_offset {
+            return Ok(layout(off, below));
         }
         let robot = (pos.x + closed_inset, pos.y + closed_inset);
         // The work area, so the panel stays clear of the taskbar. With no current monitor,
@@ -107,20 +118,20 @@ fn set_panel(
         let primary = monitor_rects(&window).first().map(|r| (r.x, r.y, r.w, r.h));
         let monitor = overlay::area_or_primary(current, primary);
         let (w, h) = (px(PANEL_W), px(PANEL_H));
-        let (x, y) = overlay::panel_rect(robot, monitor, (w, h), (px(ROBOT_SIZE), px(ROBOT_SIZE)));
-        overlay::set_bounds(&window, x, y, w, h)?;
+        let place = overlay::panel_place(robot, monitor, (w, h), (px(ROBOT_SIZE), px(ROBOT_SIZE)), px(HAT_ROOM));
+        overlay::set_bounds(&window, place.x, place.y, w, h)?;
         *lock(&region) = overlay::HitRegion::Full;
-        let off = (robot.0 - x, robot.1 - y);
-        state.robot_offset = Some(off);
-        Ok(layout(off))
+        let off = (robot.0 - place.x, robot.1 - place.y);
+        state.robot_offset = Some((off, place.below));
+        Ok(layout(off, place.below))
     } else {
-        if let Some(off) = state.robot_offset.take() {
+        if let Some((off, _)) = state.robot_offset.take() {
             let (x, y) = (pos.x + off.0 - closed_inset, pos.y + off.1 - closed_inset);
             let side = px(CLOSED_SIZE);
             *lock(&region) = closed_region(scale);
             overlay::set_bounds(&window, x, y, side, side)?;
         }
-        Ok(layout((closed_inset, closed_inset)))
+        Ok(layout((closed_inset, closed_inset), true))
     }
 }
 
@@ -203,6 +214,10 @@ fn state_path() -> std::path::PathBuf {
     paths::data_dir().join("state.json")
 }
 
+fn hats_path() -> std::path::PathBuf {
+    paths::data_dir().join("hats.json")
+}
+
 /// Waits until the window has stopped moving, then saves where it ended up. The panel
 /// moves the window too, so nothing is saved while it is open.
 const SAVE_DELAY: Duration = Duration::from_millis(400);
@@ -276,6 +291,10 @@ fn main() {
                 let mut c = lock(&core);
                 c.set_approve_in_window(approvals.enabled);
                 c.set_hold(approvals.hold_seconds);
+                let holidays = hats::load(&hats_path());
+                c.set_hats(holidays.months);
+                c.set_holidays_enabled(holidays.enabled);
+                c.set_month(hats::local_month());
             }
             app.manage(core.clone());
 
@@ -292,6 +311,19 @@ fn main() {
                 })
             };
             app.manage(publish.clone());
+
+            // The hat follows the local month: checked once a minute, which also catches the
+            // PC waking from sleep.
+            std::thread::spawn({
+                let (core, publish) = (core.clone(), publish.clone());
+                move || loop {
+                    std::thread::sleep(MONTH_TICK);
+                    let changed = lock(&core).set_month(hats::local_month());
+                    if changed {
+                        publish();
+                    }
+                }
+            });
 
             let voice_path = paths::data_dir().join("voice.txt");
             let (voices, default_voice) = voice::installed();
@@ -354,7 +386,8 @@ fn main() {
 
             let voice_menu = tray::VoiceMenu { names: voices, default: default_voice, choice, path: voice_path };
             let approve_menu = tray::ApproveMenu { approvals, path: approvals_path };
-            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on, voice_menu, approve_menu)?;
+            let hat_menu = tray::HatMenu { path: hats_path() };
+            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on, voice_menu, approve_menu, hat_menu)?;
 
             // Ctrl+Alt+D shows or hides the character. If another app owns the key, say so
             // in the warning and carry on.

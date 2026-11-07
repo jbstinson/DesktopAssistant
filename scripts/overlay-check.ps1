@@ -135,15 +135,17 @@ try {
   [U]::GetWindowRect($hwnd, [ref]$p) | Out-Null
   $pw = $p.R - $p.L; $ph = $p.B - $p.T
   "panel opened: rect=$(Rect)"
-  "panel window is 360x480 css px: " + (($pw -eq [int](360 * $s)) -and ($ph -eq [int](480 * $s)))
+  "panel window is 360x510 css px: " + (($pw -eq [int](360 * $s)) -and ($ph -eq [int](510 * $s)))
   $style = [U]::GetExStyle($hwnd, -20).ToInt64()
   "noactivate kept with panel open: " + [bool]($style -band 0x8000000)
   [System.Windows.Forms.SendKeys]::SendWait("x"); Pump 200
   "typing still lands in app: " + ($box.Text -eq "x")
 
   # 2. Clicking inside the panel (the part away from the robot) is taken by the panel.
+  # The robot keeps 30 css px of hat room above it, so with the panel below, the window top is that far above the robot.
   $robotTop = $y + [int](30 * $s)
-  if ($p.T -eq $robotTop) { $py = $p.T + [int]((140 * $s + $ph) / 2) } else { $py = $p.T + [int](($ph - 140 * $s) / 2) }
+  $robotAndRoom = [int](170 * $s)
+  if ($p.T -eq $robotTop - [int](30 * $s)) { $py = $p.T + [int](($robotAndRoom + $ph) / 2) } else { $py = $p.T + [int](($ph - $robotAndRoom) / 2) }
   $before = $script:underClicks
   Click ($p.L + [int]($pw / 2)) $py
   "panel took the click (under-window count unchanged): " + ($script:underClicks -eq $before)
@@ -229,16 +231,17 @@ try {
   Pump 2000
   [U]::GetWindowRect($hwnd, [ref]$r) | Out-Null
   $pw = $r.R - $r.L; $ph = $r.B - $r.T
-  "request opened the panel by itself: " + (($pw -eq [int](360 * $s)) -and ($ph -eq [int](480 * $s))) + " (rect=$(Rect))"
+  "request opened the panel by itself: " + (($pw -eq [int](360 * $s)) -and ($ph -eq [int](510 * $s))) + " (rect=$(Rect))"
   "auto-open kept focus: " + ([U]::GetForegroundWindow() -eq $typing) + " (foreground is $(Fg))"
   [System.Windows.Forms.SendKeys]::SendWait("a"); Pump 200
   "typing still lands after auto-open: " + ($box.Text -eq "a")
   $style = [U]::GetExStyle($hwnd, -20).ToInt64()
   "noactivate kept with a request showing: " + [bool]($style -band 0x8000000)
-  # Deny sits at the far left of the button row, 50 px above the panel's bottom when the panel
-  # is below the robot, otherwise 195 px above the window's bottom.
+  # Deny sits at the far left of the button row, 50 px above the window's bottom when the panel
+  # is below the robot (the window then starts at the hat room above the robot), otherwise
+  # 225 px above it.
   $denyX = $r.L + [int](38 * $s)
-  $denyY = if ($r.T -eq $y + [int](30 * $s) -or $r.T -eq $y) { $r.T + [int](430 * $s) } else { $r.T + [int](285 * $s) }
+  $denyY = if ($r.T -gt $y - [int](170 * $s)) { $r.T + [int](460 * $s) } else { $r.T + [int](285 * $s) }
   # Always allow asks twice. A double-click on it must answer nothing: the check that replaces the
   # row keeps Confirm at the far left, clear of where Always allow was, and Cancel is harmless.
   $aaX = $r.L + [int](299 * $s)

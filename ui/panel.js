@@ -127,3 +127,17 @@ export function mountPanel(root, { onDismiss, onJump }) {
 
   return { render, setOpen };
 }
+
+const ROBOT = 140;
+const HAT_ROOM = 30;
+const GAP = 8;
+const PANEL_MAX = 332;
+
+/** Where the panel goes in the open window: never over the robot or its hat room. */
+export function panelBox(robotY, windowH, below) {
+  if (below) {
+    const top = robotY + ROBOT + GAP;
+    return { top, height: Math.min(PANEL_MAX, windowH - top) };
+  }
+  return { top: GAP, height: Math.min(PANEL_MAX, robotY - HAT_ROOM - GAP) };
+}
