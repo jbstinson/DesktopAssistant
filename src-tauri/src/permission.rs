@@ -276,12 +276,13 @@ mod tests {
 
     #[test]
     fn reply_is_the_only_behavior_builder() {
-        let files: [(&str, &str); 20] = [
+        let files: [(&str, &str); 21] = [
             ("app.rs", include_str!("app.rs")),
             ("approvals.rs", include_str!("approvals.rs")),
             ("delivery.rs", include_str!("delivery.rs")),
             ("events.rs", include_str!("events.rs")),
             ("hats.rs", include_str!("hats.rs")),
+            ("avatar.rs", include_str!("avatar.rs")),
             ("installer.rs", include_str!("installer.rs")),
             ("jump.rs", include_str!("jump.rs")),
             ("listener.rs", include_str!("listener.rs")),

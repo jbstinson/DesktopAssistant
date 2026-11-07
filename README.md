@@ -37,6 +37,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 - **Do not disturb**: mutes sound and speech. The robot still animates.
 - **Approve in window**: ticked by default. When on, permission requests can be answered in the panel (see Approvals). Turning it off hands every held request back to Claude Code at once. Your choice is remembered.
 - **Voice**: lists the Windows voices installed on this PC. Picking one speaks a short sample and remembers your choice in `%APPDATA%\DesktopAssistant\voice.txt`. The sample is muted during Do not disturb. If a saved voice is uninstalled, the Windows default is used.
+- **Avatar**: picks the character: Robot (the default), Dog, Cat or Paperclip. The change shows at once and is remembered.
 - **Holidays**: **Enabled** turns every holiday hat on or off at once. **Months** has one tick per month; a ticked month's hat appears on the robot for that whole month (see Hats). Your choices are remembered.
 - **Connect to Claude Code**: ticked when the hooks are installed. Click again to remove only our entries.
 - **Open rules file**: opens `rules.toml` in Notepad.
@@ -48,7 +49,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 
 ## Where files live
 
-Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time), `hats.json` (the Holidays switch and months whose hat is off) and `endpoint.json` (the local port and token that `da-hook` uses).
+Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time), `avatar.txt` (the chosen avatar), `hats.json` (the Holidays switch and months whose hat is off) and `endpoint.json` (the local port and token that `da-hook` uses).
 
 ## Hats
 

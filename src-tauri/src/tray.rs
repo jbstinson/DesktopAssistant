@@ -5,6 +5,7 @@
 
 use crate::approvals::{self, Approvals};
 use crate::delivery::Queue;
+use crate::avatar;
 use crate::hats::{self, Holidays, Months};
 use crate::rules::{Alert, Tier};
 use crate::voice::{self, Choice};
@@ -101,6 +102,8 @@ pub struct TrayItems {
     approve: CheckMenuItem<Wry>,
     hooks: CheckMenuItem<Wry>,
     voices: Vec<(String, CheckMenuItem<Wry>)>,
+    /// One per avatar, in avatar::AVATARS order.
+    avatars: Vec<CheckMenuItem<Wry>>,
     /// The Holidays Enabled switch.
     holidays: CheckMenuItem<Wry>,
     /// The Months ticks, January first.
@@ -108,6 +111,11 @@ pub struct TrayItems {
 }
 
 /// Where the Holidays choices are kept.
+/// Where the Avatar choice is kept.
+pub struct AvatarMenu {
+    pub path: PathBuf,
+}
+
 pub struct HatMenu {
     pub path: PathBuf,
 }
@@ -254,6 +262,19 @@ fn toggle_holidays(items: &TrayItems, core: &Core, publish: &Publish, menu: &Hat
     publish();
 }
 
+/// Switches the character, ticks only the picked avatar, remembers it, and redraws.
+fn pick_avatar(items: &TrayItems, core: &Core, publish: &Publish, menu: &AvatarMenu, id: &str) {
+    let id = avatar::known(id);
+    lock(core).set_avatar(id);
+    for (item, (item_id, _)) in items.avatars.iter().zip(avatar::AVATARS) {
+        let _ = item.set_checked(item_id == id);
+    }
+    if let Err(e) = avatar::save(&menu.path, id) {
+        eprintln!("avatar: cannot save choice: {e}");
+    }
+    publish();
+}
+
 fn save_holidays(menu: &HatMenu, holidays: &Holidays) {
     if let Err(e) = hats::save(&menu.path, holidays) {
         eprintln!("hats: cannot save choice: {e}");
@@ -323,6 +344,7 @@ pub fn install(
     voice_menu: VoiceMenu,
     approve_menu: ApproveMenu,
     hat_menu: HatMenu,
+    avatar_menu: AvatarMenu,
 ) -> tauri::Result<()> {
     let toggle = MenuItem::with_id(app, "toggle", "Hide", true, None::<&str>)?;
     let quiet = CheckMenuItem::with_id(app, "quiet", "Do not disturb", true, false, None::<&str>)?;
@@ -360,12 +382,23 @@ pub fn install(
         }
         items
     };
+    let avatar_submenu = Submenu::new(app, "Avatar", true)?;
+    let avatars = {
+        let current = lock(&core).avatar();
+        let mut items = Vec::new();
+        for (id, label) in avatar::AVATARS {
+            let item = CheckMenuItem::with_id(app, format!("avatar:{id}"), label, true, id == current, None::<&str>)?;
+            avatar_submenu.append(&item)?;
+            items.push(item);
+        }
+        items
+    };
     let holidays_submenu = Submenu::with_items(app, "Holidays", true, &[&holidays, &months_submenu])?;
     let rules = MenuItem::with_id(app, "rules", "Open rules file", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&toggle, &quiet, &approve, &voice_submenu, &holidays_submenu, &hooks, &rules, &sep, &quit_item])?;
-    app.manage(TrayItems { toggle, quiet, approve, hooks, voices, holidays, hats });
+    let menu = Menu::with_items(app, &[&toggle, &quiet, &approve, &voice_submenu, &avatar_submenu, &holidays_submenu, &hooks, &rules, &sep, &quit_item])?;
+    app.manage(TrayItems { toggle, quiet, approve, hooks, voices, avatars, holidays, hats });
 
     let mut builder = TrayIconBuilder::new().tooltip("DesktopAssistant").menu(&menu);
     if let Some(icon) = app.default_window_icon() {
@@ -393,6 +426,8 @@ pub fn install(
             id => {
                 if let Some(name) = id.strip_prefix("voice:") {
                     pick_voice(&app.state::<TrayItems>(), &voice_menu, &queue, name);
+                } else if let Some(avatar_id) = id.strip_prefix("avatar:") {
+                    pick_avatar(&app.state::<TrayItems>(), &core, &publish, &avatar_menu, avatar_id);
                 } else if let Some(month) = id.strip_prefix("hat:").and_then(|m| m.parse::<u8>().ok()) {
                     toggle_hat(&app.state::<TrayItems>(), &core, &publish, &hat_menu, month);
                 }
