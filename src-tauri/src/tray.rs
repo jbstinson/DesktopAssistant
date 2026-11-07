@@ -5,7 +5,7 @@
 
 use crate::approvals::{self, Approvals};
 use crate::delivery::Queue;
-use crate::hats::{self, Months};
+use crate::hats::{self, Holidays, Months};
 use crate::rules::{Alert, Tier};
 use crate::voice::{self, Choice};
 use crate::installer::{self, Change};
@@ -101,11 +101,13 @@ pub struct TrayItems {
     approve: CheckMenuItem<Wry>,
     hooks: CheckMenuItem<Wry>,
     voices: Vec<(String, CheckMenuItem<Wry>)>,
-    /// January first.
+    /// The Holidays Enabled switch.
+    holidays: CheckMenuItem<Wry>,
+    /// The Months ticks, January first.
     hats: Vec<CheckMenuItem<Wry>>,
 }
 
-/// Where the Hats choices are kept.
+/// Where the Holidays choices are kept.
 pub struct HatMenu {
     pub path: PathBuf,
 }
@@ -226,19 +228,36 @@ fn toggle_hat(items: &TrayItems, core: &Core, publish: &Publish, menu: &HatMenu,
     if !(1..=12).contains(&month) {
         return;
     }
-    let on = {
+    let holidays = {
         let mut core = lock(core);
         let on = toggled(core.hats(), month);
         core.set_hats(on);
-        on
+        Holidays { enabled: core.holidays_enabled(), months: core.hats() }
     };
     if let Some(item) = items.hats.get(month as usize - 1) {
-        let _ = item.set_checked(on[month as usize - 1]);
+        let _ = item.set_checked(holidays.months[month as usize - 1]);
     }
-    if let Err(e) = hats::save(&menu.path, &on) {
+    save_holidays(menu, &holidays);
+    publish();
+}
+
+/// Turns every hat on or off at once. The month ticks are kept either way.
+fn toggle_holidays(items: &TrayItems, core: &Core, publish: &Publish, menu: &HatMenu) {
+    let holidays = {
+        let mut core = lock(core);
+        let on = !core.holidays_enabled();
+        core.set_holidays_enabled(on);
+        Holidays { enabled: on, months: core.hats() }
+    };
+    let _ = items.holidays.set_checked(holidays.enabled);
+    save_holidays(menu, &holidays);
+    publish();
+}
+
+fn save_holidays(menu: &HatMenu, holidays: &Holidays) {
+    if let Err(e) = hats::save(&menu.path, holidays) {
         eprintln!("hats: cannot save choice: {e}");
     }
-    publish();
 }
 
 /// Passes on the status already held. The status is bound first so the core lock is free when
@@ -326,22 +345,27 @@ pub fn install(
     if voices.is_empty() {
         voice_submenu.append(&MenuItem::new(app, "No voices found", false, None::<&str>)?)?;
     }
-    let hat_submenu = Submenu::new(app, "Hats", true)?;
+    let (enabled, on) = {
+        let core = lock(&core);
+        (core.holidays_enabled(), core.hats())
+    };
+    let holidays = CheckMenuItem::with_id(app, "holidays", "Enabled", true, enabled, None::<&str>)?;
+    let months_submenu = Submenu::new(app, "Months", true)?;
     let hats = {
-        let on = lock(&core).hats();
         let mut items = Vec::new();
         for (i, name) in hats::NAMES.iter().enumerate() {
             let item = CheckMenuItem::with_id(app, format!("hat:{}", i + 1), *name, true, on[i], None::<&str>)?;
-            hat_submenu.append(&item)?;
+            months_submenu.append(&item)?;
             items.push(item);
         }
         items
     };
+    let holidays_submenu = Submenu::with_items(app, "Holidays", true, &[&holidays, &months_submenu])?;
     let rules = MenuItem::with_id(app, "rules", "Open rules file", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&toggle, &quiet, &approve, &voice_submenu, &hat_submenu, &hooks, &rules, &sep, &quit_item])?;
-    app.manage(TrayItems { toggle, quiet, approve, hooks, voices, hats });
+    let menu = Menu::with_items(app, &[&toggle, &quiet, &approve, &voice_submenu, &holidays_submenu, &hooks, &rules, &sep, &quit_item])?;
+    app.manage(TrayItems { toggle, quiet, approve, hooks, voices, holidays, hats });
 
     let mut builder = TrayIconBuilder::new().tooltip("DesktopAssistant").menu(&menu);
     if let Some(icon) = app.default_window_icon() {
@@ -363,6 +387,7 @@ pub fn install(
                     HOOKS_BUSY.store(false, Ordering::SeqCst);
                 });
             }
+            "holidays" => toggle_holidays(&app.state::<TrayItems>(), &core, &publish, &hat_menu),
             "rules" => open_rules(),
             "quit" => quit(app),
             id => {

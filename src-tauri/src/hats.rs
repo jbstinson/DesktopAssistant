@@ -1,8 +1,10 @@
 //! Monthly hats: which months have their hat on, saved as `hats.json` in the data folder,
 //! and the local month.
 //!
-//! `{"off": [2, 10]}` lists the months (1-12) whose hat is off. A missing or malformed file
-//! means every hat is on; entries that are not whole numbers from 1 to 12 are ignored.
+//! `{"enabled": true, "off": [2, 10]}`: the Holidays switch, and the months (1-12) whose hat
+//! is off. A missing or malformed file means on with every hat; a missing `enabled` (files
+//! saved before the switch existed) means on; entries in `off` that are not whole numbers from
+//! 1 to 12 are ignored.
 
 use std::path::Path;
 
@@ -11,32 +13,44 @@ pub type Months = [bool; 12];
 
 pub const ALL_ON: Months = [true; 12];
 
+/// The Holidays settings: the master switch and each month's tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Holidays {
+    pub enabled: bool,
+    pub months: Months,
+}
+
+impl Default for Holidays {
+    fn default() -> Self {
+        Holidays { enabled: true, months: ALL_ON }
+    }
+}
+
 pub const NAMES: [&str; 12] = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
 ];
 
-/// Reads the saved choices. Never fails: anything unreadable means all on.
-pub fn load(path: &Path) -> Months {
+/// Reads the saved choices. Never fails: anything unreadable gives the default for that part.
+pub fn load(path: &Path) -> Holidays {
     let value = std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
-    let Some(off) = value.as_ref().and_then(|v| v.get("off")).and_then(|v| v.as_array()) else {
-        return ALL_ON;
-    };
-    let mut on = ALL_ON;
-    for m in off.iter().filter_map(|v| v.as_u64()).filter(|m| (1..=12).contains(m)) {
-        on[m as usize - 1] = false;
+    let field = |key: &str| value.as_ref().and_then(|v| v.get(key));
+    let mut months = ALL_ON;
+    let off = field("off").and_then(|v| v.as_array()).into_iter().flatten();
+    for m in off.filter_map(|v| v.as_u64()).filter(|m| (1..=12).contains(m)) {
+        months[m as usize - 1] = false;
     }
-    on
+    Holidays { enabled: field("enabled").and_then(|v| v.as_bool()).unwrap_or(true), months }
 }
 
 /// Writes the choices atomically: temp file, then rename.
-pub fn save(path: &Path, on: &Months) -> std::io::Result<()> {
+pub fn save(path: &Path, h: &Holidays) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let off: Vec<u8> = (1..=12).filter(|m| !on[*m as usize - 1]).collect();
+    let off: Vec<u8> = (1..=12).filter(|m| !h.months[*m as usize - 1]).collect();
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::json!({ "off": off }).to_string())?;
+    std::fs::write(&tmp, serde_json::json!({ "enabled": h.enabled, "off": off }).to_string())?;
     std::fs::rename(&tmp, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
     })
@@ -94,17 +108,22 @@ mod tests {
         assert_eq!(shown(13, &ALL_ON), None);
     }
 
+    fn off(months: &[u8]) -> Holidays {
+        Holidays { enabled: true, months: with_off(months) }
+    }
+
     #[test]
     fn missing_file_is_all_on() {
-        assert_eq!(load(&temp_dir("missing").join("hats.json")), ALL_ON);
+        assert_eq!(load(&temp_dir("missing").join("hats.json")), Holidays::default());
+        assert_eq!(Holidays::default(), Holidays { enabled: true, months: ALL_ON });
     }
 
     #[test]
     fn malformed_file_is_all_on() {
         let p = temp_dir("bad").join("hats.json");
-        for text in ["", "{ bad", "[]", "null", r#"{"off": "10"}"#] {
+        for text in ["", "{ bad", "[]", "null", r#"{"off": "10"}"#, r#"{"enabled": "no"}"#] {
             std::fs::write(&p, text).unwrap();
-            assert_eq!(load(&p), ALL_ON, "{text:?}");
+            assert_eq!(load(&p), Holidays::default(), "{text:?}");
         }
     }
 
@@ -112,16 +131,30 @@ mod tests {
     fn junk_entries_are_ignored() {
         let p = temp_dir("junk").join("hats.json");
         std::fs::write(&p, r#"{"off": [0, 13, "x", 10.5, 10]}"#).unwrap();
-        assert_eq!(load(&p), with_off(&[10]));
+        assert_eq!(load(&p), off(&[10]));
+    }
+
+    #[test]
+    fn a_file_from_before_the_switch_reads_as_enabled() {
+        let p = temp_dir("old").join("hats.json");
+        std::fs::write(&p, r#"{"off":[2]}"#).unwrap();
+        assert_eq!(load(&p), off(&[2]));
+    }
+
+    #[test]
+    fn disabled_keeps_the_month_choices() {
+        let p = temp_dir("disabled").join("hats.json");
+        std::fs::write(&p, r#"{"enabled": false, "off": [10]}"#).unwrap();
+        assert_eq!(load(&p), Holidays { enabled: false, months: with_off(&[10]) });
     }
 
     #[test]
     fn saves_and_loads_including_a_new_folder() {
         let p = temp_dir("save").join("nested").join("hats.json");
-        let on = with_off(&[10, 2]);
-        save(&p, &on).unwrap();
-        assert_eq!(std::fs::read_to_string(&p).unwrap(), r#"{"off":[2,10]}"#);
-        assert_eq!(load(&p), on);
+        let h = Holidays { enabled: false, months: with_off(&[10, 2]) };
+        save(&p, &h).unwrap();
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), r#"{"enabled":false,"off":[2,10]}"#);
+        assert_eq!(load(&p), h);
         assert!(!p.with_extension("json.tmp").exists());
     }
 

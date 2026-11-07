@@ -57,7 +57,7 @@ The user wants the character to have more than one look. A hat adds a seasonal t
 - **Antenna.** Hidden while a hat is shown; back when there is no hat.
 - **All poses.** The hat stays on in every state: asleep, idle, typing, reading, thinking, done, needs-you and error.
 - **Switches.** All twelve are on by default. *(Claude's call, accepted by the user.)*
-- **Where the switches live.** A **Hats** submenu in the tray, beside Voice, with one tick item per month, January to December. Changing a tick takes effect at once. *(Claude's call, accepted by the user.)*
+- **Where the switches live.** A **Holidays** submenu in the tray, beside Voice, holding **Enabled** (every hat on or off at once) and a **Months** submenu with one tick per month, January to December. Turning Enabled off keeps the month ticks. Changing either takes effect at once and is saved in `hats.json` as `{"enabled": true, "off": [...]}`. *(Changed at the user's request on 2026-11-07; first version was a flat Hats submenu.)*
 - **Saved choice.** Stored in `%APPDATA%\DesktopAssistant\`, alongside `voice.txt` and `approvals.json`. A missing or unreadable file means all on.
 
 ## Left to the builder

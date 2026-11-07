@@ -291,7 +291,9 @@ fn main() {
                 let mut c = lock(&core);
                 c.set_approve_in_window(approvals.enabled);
                 c.set_hold(approvals.hold_seconds);
-                c.set_hats(hats::load(&hats_path()));
+                let holidays = hats::load(&hats_path());
+                c.set_hats(holidays.months);
+                c.set_holidays_enabled(holidays.enabled);
                 c.set_month(hats::local_month());
             }
             app.manage(core.clone());

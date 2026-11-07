@@ -108,6 +108,8 @@ pub struct Core {
     hooks_on: bool,
     hooks_stale: bool,
     hats: Months,
+    /// The Holidays switch: off means no hat in any month.
+    holidays_enabled: bool,
     /// The local month, once main.rs has read it.
     month: Option<u8>,
 }
@@ -149,6 +151,7 @@ impl Core {
             hooks_on: false,
             hooks_stale: false,
             hats: hats::ALL_ON,
+            holidays_enabled: true,
             month: None,
         }
     }
@@ -268,14 +271,24 @@ impl Core {
         self.hotkey_warning = warning;
     }
 
-    /// Do-not-disturb. The sound queue is muted separately. Turning it on hands every held
-    /// request back.
+    /// Each month's hat tick, kept while Holidays is off.
     pub fn set_hats(&mut self, on: Months) {
         self.hats = on;
     }
 
     pub fn hats(&self) -> Months {
         self.hats
+    }
+
+    /// The Holidays switch. True when that changes the hat on screen.
+    pub fn set_holidays_enabled(&mut self, on: bool) -> bool {
+        let before = self.hat();
+        self.holidays_enabled = on;
+        self.hat() != before
+    }
+
+    pub fn holidays_enabled(&self) -> bool {
+        self.holidays_enabled
     }
 
     /// Records the local month. True when that changes the hat on screen.
@@ -286,9 +299,11 @@ impl Core {
     }
 
     fn hat(&self) -> Option<u8> {
-        self.month.and_then(|m| hats::shown(m, &self.hats))
+        self.month.filter(|_| self.holidays_enabled).and_then(|m| hats::shown(m, &self.hats))
     }
 
+    /// Do-not-disturb. The sound queue is muted separately. Turning it on hands every held
+    /// request back.
     pub fn set_quiet(&mut self, quiet: bool) {
         self.quiet = quiet;
         if quiet {
@@ -446,6 +461,28 @@ mod tests {
         assert!(!core.set_month(11));
         core.set_hats(crate::hats::ALL_ON);
         assert_eq!(core.snapshot(0).hat, Some(11));
+    }
+
+    #[test]
+    fn holidays_off_removes_the_hat_and_keeps_the_months() {
+        let mut core = Core::new(defaults(), None);
+        core.set_month(10);
+        let mut on = crate::hats::ALL_ON;
+        on[1] = false;
+        core.set_hats(on);
+        assert!(core.holidays_enabled());
+        assert!(core.set_holidays_enabled(false));
+        assert!(!core.holidays_enabled());
+        assert_eq!(core.snapshot(0).hat, None);
+        assert_eq!(core.hats(), on);
+        // While off, a new month or a month tick changes nothing on screen.
+        assert!(!core.set_month(11));
+        core.set_hats(crate::hats::ALL_ON);
+        assert_eq!(core.snapshot(0).hat, None);
+        // Back on: the current month's hat returns.
+        assert!(core.set_holidays_enabled(true));
+        assert_eq!(core.snapshot(0).hat, Some(11));
+        assert!(!core.set_holidays_enabled(true));
     }
 
     #[test]
