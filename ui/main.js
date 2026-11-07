@@ -2,6 +2,7 @@ import { mountCharacter } from "./character.svg.js";
 import { mountPanel, panelBox } from "./panel.js";
 import { mountApproval } from "./approval.js";
 import { hatMarkup } from "./hats.js";
+import { avatarFor } from "./avatars/index.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -12,7 +13,7 @@ const { getCurrentWindow } = window.__TAURI__.window;
 const DRAG_MS = 150;
 
 const robot = document.getElementById("robot");
-const parts = mountCharacter(robot);
+let parts = mountCharacter(robot, "robot");
 const warn = document.createElement("span");
 warn.id = "warn";
 warn.textContent = "!";
@@ -130,6 +131,17 @@ function wearHat(month) {
   document.body.dataset.hat = parts.hat.innerHTML ? "on" : "off";
 }
 
+// A new avatar replaces only the character SVG; the hat is put back on the new head below.
+let avatarShown = "robot";
+function wearAvatar(id) {
+  const avatar = avatarFor(id).id;
+  if (avatar === avatarShown) return;
+  avatarShown = avatar;
+  parts = mountCharacter(robot, avatar);
+  document.body.dataset.avatar = avatar;
+  hatShown = undefined;
+}
+
 let gotEvent = false;
 
 function apply(snap) {
@@ -137,6 +149,7 @@ function apply(snap) {
   body.dataset.state = snap.state;
   body.dataset.multi = String(snap.waiting > 1);
   body.dataset.warning = String(Boolean(snap.warning));
+  wearAvatar(snap.avatar);
   parts.badgeCount.textContent = snap.waiting > 1 ? String(snap.waiting) : "";
   wearHat(snap.hat ?? null);
   robot.title = snap.warning || "";

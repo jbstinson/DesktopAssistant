@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- Every hat in every pose, each in a 200x200 cell like the closed window.
+<!-- Every hat in every pose for one avatar (?avatar=robot|dog|cat|paperclip), each in a 200x200 cell like the closed window.
      Serve with scripts/serve-ui.mjs; ES modules don't load from file://. -->
 <html>
 <head>
@@ -22,6 +22,8 @@
     import { mountCharacter } from "../ui/character.svg.js";
     import { hatMarkup } from "../ui/hats.js";
 
+    const AVATAR = new URLSearchParams(location.search).get("avatar") || "robot";
+    document.title = `Hats preview: ${AVATAR}`;
     const STATES = ["asleep", "idle", "typing", "reading", "thinking", "done", "needs-you", "error"];
     const NAMES = ["No hat", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const grid = document.getElementById("grid");
@@ -35,11 +37,12 @@
         const cell = document.createElement("div");
         cell.className = "cell";
         cell.dataset.state = state;
+        cell.dataset.avatar = AVATAR;
         cell.dataset.multi = "true";
         const robot = document.createElement("div");
         robot.className = "robot";
         cell.append(robot);
-        const parts = mountCharacter(robot);
+        const parts = mountCharacter(robot, AVATAR);
         parts.badgeCount.textContent = "2";
         parts.hat.innerHTML = hatMarkup(month || null);
         cell.dataset.hat = parts.hat.innerHTML ? "on" : "off";
