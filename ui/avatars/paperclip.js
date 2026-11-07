@@ -10,10 +10,6 @@ export default {
   hatTransform: "translate(70 24) scale(0.42) translate(-70 -26)",
   art: `
 ${KEYS}
-  <g id="paper">
-    <rect x="36" y="100" width="68" height="24" rx="2" fill="#f8fafc"/>
-    <path d="M44 108 H96 M44 114 H90 M44 120 H80" stroke="#cbd5e1" stroke-width="1.5"/>
-  </g>
 ${BOOK}
 ${BELL}
   <g id="head">

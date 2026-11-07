@@ -22,7 +22,7 @@ The approved first sketches are in `.superpowers/brainstorm/1377-1794086840/cont
 | Robot | Unchanged. |
 | Dog | Brown, floppy dark ears, tan muzzle and belly, black nose, pink tongue, red collar with a gold tag, tail. |
 | Cat | Grey tabby, pointed ears with pink insides, forehead stripes, green eyes with slit pupils, pink nose, white whiskers, white chest and paws, curled tail. |
-| Paperclip | A silver bent-wire paperclip with two big round eyes and a smile, standing on a sheet of lined paper. |
+| Paperclip | A silver bent-wire paperclip with two big round eyes and a smile. (The first version stood on a sheet of lined paper; removed at the user's request as too close to Clippy.) |
 
 All art is original. The paperclip is not Microsoft's Clippy: no eyebrows, and its own eyes and smile. The dog and cat are generic.
 

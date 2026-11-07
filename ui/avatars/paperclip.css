@@ -15,7 +15,6 @@
 [data-avatar="paperclip"][data-state="typing"] #head { animation: clip-bob 0.6s step-end infinite; }
 
 /* reading: the book in front, eyes scanning. */
-[data-avatar="paperclip"][data-state="reading"] #paper { opacity: 0; }
 [data-avatar="paperclip"][data-state="reading"] #eyes { animation: look-around 2.6s steps(9) infinite; }
 [data-avatar="paperclip"][data-state="reading"] #head { animation: head-follow 2.6s steps(9) infinite; }
 
