@@ -14,6 +14,10 @@ ${KEYS}
 ${BELL}
   <g id="head">
     <path d="M62 100 V48 A8 8 0 0 1 78 48 V110 A12 12 0 0 1 54 110 V38 A16 16 0 0 1 86 38 V96" fill="none" stroke="#94a3b8" stroke-width="5" stroke-linecap="round"/>
+    <g id="clip-fingers">
+      <path id="clip-finger-left" d="M58 120 Q52 124 47 129" fill="none" stroke="#94a3b8" stroke-width="5" stroke-linecap="round"/>
+      <path id="clip-finger-right" d="M86 96 V112 Q87 122 93 129" fill="none" stroke="#94a3b8" stroke-width="5" stroke-linecap="round"/>
+    </g>
     <g id="eyes">
       <g id="eyes-shape">
         <circle cx="58" cy="56" r="9" fill="#fff" stroke="#334155" stroke-width="1.5"/><circle cx="82" cy="56" r="9" fill="#fff" stroke="#334155" stroke-width="1.5"/>
