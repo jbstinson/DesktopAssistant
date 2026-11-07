@@ -3,11 +3,12 @@
 
 import robot from "./robot.js";
 import dog from "./dog.js";
+import cat from "./cat.js";
 
 // Until each avatar has its own art, it borrows the robot's.
 const placeholder = (id) => ({ ...robot, id });
 
-export const AVATARS = { robot, dog, cat: placeholder("cat"), paperclip: placeholder("paperclip") };
+export const AVATARS = { robot, dog, cat, paperclip: placeholder("paperclip") };
 
 /** The avatar with this id, or the robot for anything unknown. */
 export function avatarFor(id) {
