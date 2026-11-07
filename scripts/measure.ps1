@@ -8,7 +8,9 @@
 param(
   [int]$Seconds = 20,
   # Folder holding release\desktop-assistant.exe; defaults to the repo target folder.
-  [string]$TargetDir = (Join-Path $PSScriptRoot "..\target")
+  [string]$TargetDir = (Join-Path $PSScriptRoot "..\target"),
+  # Avatar to measure (robot, dog, cat or paperclip), written to the sandbox's avatar.txt.
+  [string]$Avatar = "robot"
 )
 
 function Tree($rootId) {
@@ -53,6 +55,7 @@ $oldAppData = $env:APPDATA; $oldProfile = $env:USERPROFILE
 $sandbox = Join-Path ([System.IO.Path]::GetTempPath()) ("da-measure-" + $PID)
 $data = Join-Path $sandbox "appdata\DesktopAssistant"
 New-Item -ItemType Directory -Force $data, (Join-Path $sandbox "profile") | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $data "avatar.txt"), $Avatar)
 $env:APPDATA = Join-Path $sandbox "appdata"; $env:USERPROFILE = Join-Path $sandbox "profile"
 $app = $null
 try {

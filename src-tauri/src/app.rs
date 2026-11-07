@@ -60,6 +60,8 @@ pub struct Snapshot {
     pub request_count: usize,
     /// The month (1-12) whose hat the robot wears, or None for no hat.
     pub hat: Option<u8>,
+    /// Which character is on screen, an id from avatar::AVATARS.
+    pub avatar: &'static str,
 }
 
 /// Leaves the request out, so a debug print can never show a command.
@@ -74,6 +76,7 @@ impl std::fmt::Debug for Snapshot {
             .field("hooks_on", &self.hooks_on)
             .field("request_count", &self.request_count)
             .field("hat", &self.hat)
+            .field("avatar", &self.avatar)
             .finish_non_exhaustive()
     }
 }
@@ -110,6 +113,8 @@ pub struct Core {
     hats: Months,
     /// The Holidays switch: off means no hat in any month.
     holidays_enabled: bool,
+    /// An id from avatar::AVATARS.
+    avatar: &'static str,
     /// The local month, once main.rs has read it.
     month: Option<u8>,
 }
@@ -152,6 +157,7 @@ impl Core {
             hooks_stale: false,
             hats: hats::ALL_ON,
             holidays_enabled: true,
+            avatar: crate::avatar::AVATARS[0].0,
             month: None,
         }
     }
@@ -269,6 +275,14 @@ impl Core {
 
     pub fn set_hotkey_warning(&mut self, warning: Option<String>) {
         self.hotkey_warning = warning;
+    }
+
+    pub fn set_avatar(&mut self, id: &'static str) {
+        self.avatar = id;
+    }
+
+    pub fn avatar(&self) -> &'static str {
+        self.avatar
     }
 
     /// Each month's hat tick, kept while Holidays is off.
@@ -405,6 +419,7 @@ impl Core {
             request,
             request_count: self.pending.waiting_count(),
             hat: self.hat(),
+            avatar: self.avatar,
         }
     }
 }
@@ -483,6 +498,16 @@ mod tests {
         assert!(core.set_holidays_enabled(true));
         assert_eq!(core.snapshot(0).hat, Some(11));
         assert!(!core.set_holidays_enabled(true));
+    }
+
+    #[test]
+    fn the_snapshot_carries_the_avatar() {
+        let mut core = Core::new(defaults(), None);
+        assert_eq!(core.snapshot(0).avatar, "robot");
+        core.set_avatar("cat");
+        assert_eq!(core.avatar(), "cat");
+        assert_eq!(core.snapshot(0).avatar, "cat");
+        assert_eq!(serde_json::to_value(core.snapshot(0)).unwrap()["avatar"], "cat");
     }
 
     #[test]

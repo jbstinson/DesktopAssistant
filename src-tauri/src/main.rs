@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod app;
+mod avatar;
 mod approvals;
 mod delivery;
 mod events;
@@ -214,6 +215,10 @@ fn state_path() -> std::path::PathBuf {
     paths::data_dir().join("state.json")
 }
 
+fn avatar_path() -> std::path::PathBuf {
+    paths::data_dir().join("avatar.txt")
+}
+
 fn hats_path() -> std::path::PathBuf {
     paths::data_dir().join("hats.json")
 }
@@ -295,6 +300,7 @@ fn main() {
                 c.set_hats(holidays.months);
                 c.set_holidays_enabled(holidays.enabled);
                 c.set_month(hats::local_month());
+                c.set_avatar(avatar::load(&avatar_path()));
             }
             app.manage(core.clone());
 
@@ -387,7 +393,8 @@ fn main() {
             let voice_menu = tray::VoiceMenu { names: voices, default: default_voice, choice, path: voice_path };
             let approve_menu = tray::ApproveMenu { approvals, path: approvals_path };
             let hat_menu = tray::HatMenu { path: hats_path() };
-            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on, voice_menu, approve_menu, hat_menu)?;
+            let avatar_menu = tray::AvatarMenu { path: avatar_path() };
+            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on, voice_menu, approve_menu, hat_menu, avatar_menu)?;
 
             // Ctrl+Alt+D shows or hides the character. If another app owns the key, say so
             // in the warning and carry on.

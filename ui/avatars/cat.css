@@ -1,0 +1,56 @@
+/* The cat's poses. Same rules as the robot's: transform and opacity only, stepped timing, and
+   the shared keyframes from character.css (look-around, head-follow, look-up, pulse, ring, startle). */
+
+[data-avatar="cat"] #head { transform-box: view-box; transform-origin: 70px 82px; }
+[data-avatar="cat"] #paw-left { transform-box: view-box; transform-origin: 54px 90px; }
+[data-avatar="cat"] #paw-right { transform-box: view-box; transform-origin: 86px 90px; }
+[data-avatar="cat"] #tail { transform-box: view-box; transform-origin: 92px 116px; }
+[data-avatar="cat"] #ear-left { transform-box: view-box; transform-origin: 48px 36px; }
+[data-avatar="cat"] #ear-right { transform-box: view-box; transform-origin: 92px 36px; }
+[data-avatar="cat"] #book-page { transform-box: view-box; transform-origin: 70px 112px; }
+[data-avatar="cat"] #bell { transform-box: view-box; transform-origin: 122px 88px; }
+[data-avatar="cat"] #eyes, [data-avatar="cat"] #eyes-shape { transform-box: fill-box; transform-origin: center; }
+
+/* asleep: eyes shut, head down. */
+[data-avatar="cat"][data-state="asleep"] #eyes-shape { transform: scaleY(0.12); }
+[data-avatar="cat"][data-state="asleep"] #head { transform: rotate(5deg); }
+
+/* idle: a slow tail swish. */
+[data-avatar="cat"][data-state="idle"] #tail { animation: cat-swish 1.2s step-end infinite; }
+
+/* typing: eyes on the keys, paws taking turns on them. */
+[data-avatar="cat"][data-state="typing"] #eyes { transform: translateY(4px); }
+[data-avatar="cat"][data-state="typing"] #paw-left { animation: cat-tap 0.6s step-end infinite; }
+[data-avatar="cat"][data-state="typing"] #paw-right { animation: cat-tap 0.6s step-end -0.3s infinite; }
+
+/* reading: paws hold the book, eyes scan the page. */
+[data-avatar="cat"][data-state="reading"] #paw-left, [data-avatar="cat"][data-state="reading"] #paw-right { transform: translateY(-3px); }
+[data-avatar="cat"][data-state="reading"] #eyes { animation: look-around 2.6s steps(9) infinite; }
+[data-avatar="cat"][data-state="reading"] #head { animation: head-follow 2.6s steps(9) infinite; }
+
+/* thinking: head tilted, looking up. */
+[data-avatar="cat"][data-state="thinking"] #head { transform: rotate(-6deg); }
+[data-avatar="cat"][data-state="thinking"] #eyes { animation: look-up 3s steps(10) infinite; }
+
+/* needs-you: ears pricked, waving a paw. */
+[data-avatar="cat"][data-state="needs-you"] #eyes-shape { transform: scale(1.12); }
+[data-avatar="cat"][data-state="needs-you"] #ear-left { transform: rotate(-8deg); }
+[data-avatar="cat"][data-state="needs-you"] #ear-right { transform: rotate(8deg); }
+[data-avatar="cat"][data-state="needs-you"] #paw-right { transform: rotate(-120deg); animation: cat-wave 0.7s steps(5) infinite alternate; }
+
+/* done: paw up holding the bell, rings it once. */
+[data-avatar="cat"][data-state="done"] #eyes-shape { transform: scaleY(0.55); }
+[data-avatar="cat"][data-state="done"] #paw-right { transform: rotate(-105deg); }
+[data-avatar="cat"][data-state="done"] #bell { animation: ring 1.6s ease-out 1 both; }
+
+/* error: ears flattened, paws out, a startle. */
+[data-avatar="cat"][data-state="error"] #eyes-shape { transform: scale(1.3); }
+[data-avatar="cat"][data-state="error"] #ear-left { transform: rotate(-35deg); }
+[data-avatar="cat"][data-state="error"] #ear-right { transform: rotate(35deg); }
+[data-avatar="cat"][data-state="error"] #paw-left { transform: rotate(35deg); }
+[data-avatar="cat"][data-state="error"] #paw-right { transform: rotate(-35deg); }
+[data-avatar="cat"][data-state="error"] #head { animation: startle 0.5s ease-in-out 1; }
+
+@keyframes cat-swish { 0% { transform: rotate(0); } 50% { transform: rotate(10deg); } }
+@keyframes cat-tap { 0% { transform: translateY(0); } 50% { transform: translateY(3px); } }
+@keyframes cat-wave { from { transform: rotate(-100deg); } to { transform: rotate(-130deg); } }

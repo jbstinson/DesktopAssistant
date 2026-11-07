@@ -37,6 +37,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 - **Do not disturb**: mutes sound and speech. The robot still animates.
 - **Approve in window**: ticked by default. When on, permission requests can be answered in the panel (see Approvals). Turning it off hands every held request back to Claude Code at once. Your choice is remembered.
 - **Voice**: lists the Windows voices installed on this PC. Picking one speaks a short sample and remembers your choice in `%APPDATA%\DesktopAssistant\voice.txt`. The sample is muted during Do not disturb. If a saved voice is uninstalled, the Windows default is used.
+- **Avatar**: picks the character: Robot (the default), Dog, Cat or Paperclip. The change shows at once and is remembered.
 - **Holidays**: **Enabled** turns every holiday hat on or off at once. **Months** has one tick per month; a ticked month's hat appears on the robot for that whole month (see Hats). Your choices are remembered.
 - **Connect to Claude Code**: ticked when the hooks are installed. Click again to remove only our entries.
 - **Open rules file**: opens `rules.toml` in Notepad.
@@ -48,7 +49,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 
 ## Where files live
 
-Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time), `hats.json` (the Holidays switch and months whose hat is off) and `endpoint.json` (the local port and token that `da-hook` uses).
+Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time), `avatar.txt` (the chosen avatar), `hats.json` (the Holidays switch and months whose hat is off) and `endpoint.json` (the local port and token that `da-hook` uses).
 
 ## Hats
 
@@ -265,3 +266,21 @@ Needs you:
 - The tray Holidays submenu: untick and tick Enabled, and the current month under Months, and watch the hat go and come back.
 - The hat changing on a real 1st of the month (or after moving the PC clock).
 - 125% display scaling.
+
+## Verification results (Stage 2.5)
+
+Run on Windows 11 at 100% scaling, in November, with the app against a temporary APPDATA and USERPROFILE.
+
+Checked and passing:
+
+- The robot is unchanged: with every animation frozen at the same moment, all 3016 parts of the 13x8 preview grid (`scripts/hats-preview.html`) matched `main` in position, size and visibility.
+- Dog, cat and paperclip in every state and month (`hats-preview.html?avatar=...`): each state reads clearly; hats sit on the head and tilt with it (the paperclip wears them at 42%); the badge, alarm, thinking dots and "zzz" show above the art.
+- The app started with `avatar.txt` set to each avatar shows that avatar wearing the month's hat; with the cat, the panel opened at 360x510 with the hat whole.
+- Swapping avatars replaces only the character: the warning marker survives, there is one character afterwards, and the paperclip's small-hat setting follows it.
+- `scripts\overlay-check.ps1`: clicks, click-through, the panel, auto-open, the lock and answering all True, and the window kept no-activate throughout. Focus checks failed in two runs because other apps (the Claude desktop app, then VS Code) took the foreground during the run; hotkey and drag failed as before because another copy of the app owned Ctrl+Alt+D.
+- Resources (`scripts\measure.ps1 -Avatar <id>`), whole process tree: asleep 0.00% GPU for all; waving 0.34% GPU robot, 0.29% cat, 0.30% dog, 0.28% paperclip; 156-162 MB private. The cat first measured 0.49% while its tail also swished during the wave, so the tail now stays still while waving.
+
+Needs you:
+
+- Switching avatars from the tray while the app runs.
+- Each avatar during real Claude Code sessions.
