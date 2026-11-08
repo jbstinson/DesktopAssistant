@@ -13,7 +13,9 @@ const { getCurrentWindow } = window.__TAURI__.window;
 const DRAG_MS = 150;
 
 const robot = document.getElementById("robot");
-let parts = mountCharacter(robot, "robot");
+// The character is drawn once the first snapshot names the saved avatar, so a saved dog never
+// shows as the robot first.
+let parts = null;
 const warn = document.createElement("span");
 warn.id = "warn";
 warn.textContent = "!";
@@ -132,7 +134,7 @@ function wearHat(month) {
 }
 
 // A new avatar replaces only the character SVG; the hat is put back on the new head below.
-let avatarShown = "robot";
+let avatarShown = null;
 function wearAvatar(id) {
   const avatar = avatarFor(id).id;
   if (avatar === avatarShown) return;

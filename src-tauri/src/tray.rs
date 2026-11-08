@@ -110,12 +110,12 @@ pub struct TrayItems {
     hats: Vec<CheckMenuItem<Wry>>,
 }
 
-/// Where the Holidays choices are kept.
 /// Where the Avatar choice is kept.
 pub struct AvatarMenu {
     pub path: PathBuf,
 }
 
+/// Where the Holidays choices are kept.
 pub struct HatMenu {
     pub path: PathBuf,
 }
