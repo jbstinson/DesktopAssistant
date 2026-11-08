@@ -24,6 +24,19 @@ pub struct HookEvent {
     pub agent_id: Option<String>,
 }
 
+impl HookEvent {
+    /// An MCP server asking for input (Elicitation) reads as the notification Claude Code sends
+    /// for the same dialog a few seconds later, so rules written for that notification cover it
+    /// and the later notification does not alert twice.
+    pub fn normalized(mut self) -> Self {
+        if self.name == "Elicitation" {
+            self.name = "Notification".to_string();
+            self.notification_type = Some("elicitation_dialog".to_string());
+        }
+        self
+    }
+}
+
 /// A permission request as sent to the permission route. Holds the tool's input, which stays
 /// in memory only, so this type deliberately has no Debug.
 #[derive(Deserialize)]
@@ -125,6 +138,25 @@ mod tests {
         assert_eq!(e.source, "cli");
         assert_eq!(e.terminal_pid, Some(9));
         assert_eq!(e.agent_id.as_deref(), Some("ag"));
+    }
+
+    fn named(name: &str) -> HookEvent {
+        serde_json::from_str(&format!(r#"{{"name":"{name}","session_id":"s","agent_id":"ag"}}"#)).unwrap()
+    }
+
+    #[test]
+    fn an_elicitation_reads_as_the_notification_for_it() {
+        let e = named("Elicitation").normalized();
+        assert_eq!(e.name, "Notification");
+        assert_eq!(e.notification_type.as_deref(), Some("elicitation_dialog"));
+        assert_eq!(e.agent_id.as_deref(), Some("ag"));
+    }
+
+    #[test]
+    fn other_events_are_unchanged_by_normalizing() {
+        for name in ["Notification", "ElicitationResult", "PermissionDenied", "Stop"] {
+            assert_eq!(named(name).normalized(), named(name), "{name}");
+        }
     }
 
     #[test]

@@ -164,6 +164,7 @@ impl Core {
 
     /// Apply an event. Returns the alert to deliver, or None when the rules say silent.
     pub fn handle(&mut self, e: HookEvent, now: u64) -> Option<Alert> {
+        let e = e.normalized();
         // SessionEnd removes the session, so its project is read before the event is applied.
         let before = self.sessions.project_of(&e.session_id);
         let applied = self.sessions.apply(&e, now);
@@ -878,6 +879,34 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         let again = core.open_permission(ask("a", "Bash"), 7000 / 1000, 7000).alert.unwrap();
         assert_eq!((again.sound, again.speak), (None, None));
         assert_eq!(core.snapshot(0).waiting, 1);
+    }
+
+    #[test]
+    fn an_mcp_server_asking_alerts_at_once_and_its_later_notification_stays_quiet() {
+        let mut core = Core::new(defaults(), None);
+        let first = core.handle(ev("Elicitation", "a", None), 1).unwrap();
+        assert_eq!(first.tier, Tier::NeedsYou);
+        assert_eq!(first.speak.as_deref(), Some("proj needs you"));
+        assert_eq!(core.snapshot(0).state, "needs-you");
+
+        let mut note = ev("Notification", "a", None);
+        note.notification_type = Some("elicitation_dialog".into());
+        let later = core.handle(note, 7).unwrap();
+        assert_eq!((later.sound, later.speak), (None, None));
+
+        assert_eq!(core.handle(ev("ElicitationResult", "a", None), 8), None);
+        assert_eq!(core.snapshot(0).state, "thinking");
+    }
+
+    #[test]
+    fn an_auto_mode_denial_is_good_to_know_and_keeps_the_session_working() {
+        let mut core = Core::new(defaults(), None);
+        core.handle(ev("PreToolUse", "a", Some("Bash")), 1);
+        let alert = core.handle(ev("PermissionDenied", "a", Some("Bash")), 2).unwrap();
+        assert_eq!(alert.tier, Tier::GoodToKnow);
+        assert_eq!(alert.sound.as_deref(), Some("alert"));
+        assert_eq!(alert.speak.as_deref(), Some("proj: auto mode blocked a command"));
+        assert_eq!(core.snapshot(0).state, "typing");
     }
 
     #[test]

@@ -110,12 +110,12 @@ pub struct TrayItems {
     hats: Vec<CheckMenuItem<Wry>>,
 }
 
-/// Where the Holidays choices are kept.
 /// Where the Avatar choice is kept.
 pub struct AvatarMenu {
     pub path: PathBuf,
 }
 
+/// Where the Holidays choices are kept.
 pub struct HatMenu {
     pub path: PathBuf,
 }
@@ -530,7 +530,7 @@ mod tests {
         assert_eq!(hook_status(&settings, &moved), HookStatus { on: true, stale: false });
         assert_eq!(hook_status(&settings, &hook), HookStatus { on: false, stale: true });
         let text = std::fs::read_to_string(&settings).unwrap();
-        assert_eq!(text.matches("da-hook.exe").count(), 9);
+        assert_eq!(text.matches("da-hook.exe").count(), crate::installer::EVENTS.len());
         // Disconnect from the new location also leaves nothing behind.
         set_hooks(&settings, &moved, false).unwrap();
         assert_eq!(hook_status(&settings, &moved), HookStatus { on: false, stale: false });

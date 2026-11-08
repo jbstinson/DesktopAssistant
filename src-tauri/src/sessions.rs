@@ -72,7 +72,7 @@ fn project_name(cwd: &str) -> String {
 
 /// Notification types that mean Claude is waiting for the user. An absent type counts.
 fn is_blocking_notification(kind: Option<&str>) -> bool {
-    matches!(kind, None | Some("permission_prompt") | Some("elicitation_dialog"))
+    matches!(kind, None | Some("permission_prompt") | Some("elicitation_dialog") | Some("elicitation_url_dialog"))
 }
 
 fn waiting_on_another(s: &Session, e: &HookEvent) -> bool {
@@ -145,6 +145,12 @@ impl Sessions {
                 }
                 Some(Activity::NeedsYou)
             }
+            // The user answered an MCP server's question: the agent that asked runs again.
+            "ElicitationResult" if s.activity == Activity::NeedsYou && !waiting_on_another(s, e) => {
+                Some(Activity::Thinking)
+            }
+            // PermissionDenied (auto mode refused a call) and an ElicitationResult nobody was
+            // waiting on leave the session as it is; Claude carries on by itself.
             "StopFailure" => {
                 newly_blocked = s.activity != Activity::Error;
                 s.turn_start = None;
@@ -352,6 +358,46 @@ mod tests {
         // Blocking again counts as newly blocked.
         let r = s.apply(&ev("Notification", "a", None), 3);
         assert!(r.newly_blocked);
+    }
+
+    #[test]
+    fn a_url_elicitation_blocks() {
+        let mut s = Sessions::new();
+        let mut e = ev("Notification", "a", None);
+        e.notification_type = Some("elicitation_url_dialog".into());
+        assert!(s.apply(&e, 1).newly_blocked);
+        assert_eq!(act(&s, "a"), Activity::NeedsYou);
+    }
+
+    #[test]
+    fn answering_an_elicitation_clears_needs_you() {
+        let mut s = Sessions::new();
+        let mut e = ev_agent("Notification", "a", None, Some("sub"));
+        e.notification_type = Some("elicitation_dialog".into());
+        s.apply(&e, 1);
+        // Another agent's answer does not end this wait; the waiting agent's does.
+        s.apply(&ev_agent("ElicitationResult", "a", None, None), 2);
+        assert_eq!(act(&s, "a"), Activity::NeedsYou);
+        let r = s.apply(&ev_agent("ElicitationResult", "a", None, Some("sub")), 3);
+        assert!(!r.newly_blocked);
+        assert_eq!(act(&s, "a"), Activity::Thinking);
+    }
+
+    #[test]
+    fn an_elicitation_result_while_not_waiting_changes_nothing() {
+        let mut s = Sessions::new();
+        s.apply(&ev("PreToolUse", "a", Some("Read")), 1);
+        s.apply(&ev("ElicitationResult", "a", None), 2);
+        assert_eq!(act(&s, "a"), Activity::Reading);
+    }
+
+    #[test]
+    fn a_permission_denial_does_not_block() {
+        let mut s = Sessions::new();
+        s.apply(&ev("PreToolUse", "a", Some("Bash")), 1);
+        let r = s.apply(&ev("PermissionDenied", "a", Some("Bash")), 2);
+        assert!(!r.newly_blocked);
+        assert_eq!(act(&s, "a"), Activity::Typing);
     }
 
     #[test]

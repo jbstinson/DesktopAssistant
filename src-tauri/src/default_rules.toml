@@ -14,9 +14,15 @@ then = { tier = "silent" }
 when = { event = "StopFailure" }
 then = { tier = "needs_you", sound = "alert", speak = "{project} failed" }
 
+# An MCP server asking for input counts as a Notification of type elicitation_dialog.
 [[rule]]
 when = { event = ["PermissionRequest", "Notification"] }
 then = { tier = "needs_you", sound = "alert", speak = "{project} needs you" }
+
+# Auto mode refused a command. Claude carries on, so this is only a heads-up.
+[[rule]]
+when = { event = "PermissionDenied" }
+then = { tier = "good_to_know", sound = "alert", speak = "{project}: auto mode blocked a command" }
 
 [[rule]]
 when = { event = "Stop", min_turn_seconds = 60 }

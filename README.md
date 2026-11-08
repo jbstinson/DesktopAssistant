@@ -1,15 +1,15 @@
 # DesktopAssistant
 
-A small always-on-top robot for Windows 11 that watches your Claude Code sessions and tells you when one needs you.
+A small always-on-top character for Windows 11 that watches your Claude Code sessions and tells you when one needs you.
 
 It never types anything in a session. A permission request is answered only by a click on a panel button (see Approvals); otherwise it only watches. It uses Claude Code hooks, so it sees sessions from the Claude desktop app, the terminal and `claude -p`. Nothing leaves your machine.
 
 ## What it does
 
-- Shows a robot that reacts to what your sessions are doing: asleep, reading, typing, thinking, needs-you, done, error.
+- Shows a character (a robot by default, or a dog, cat, paperclip or skeleton) that reacts to what your sessions are doing: asleep, reading, typing, thinking, needs-you, done, error.
 - Plays a short sound and speaks a short alert (built-in Windows voice) when a session needs you or finishes a long turn.
-- Click the robot to open a panel that lists each session: project, source, state and time in that state. Click a session to jump to it. The small x dismisses it.
-- Never takes focus. Empty areas of its window let clicks through. Drag the robot to move it, including to another monitor. It remembers where you left it.
+- Click the character to open a panel that lists each session: project, source, state and time in that state. Click a session to jump to it. The small x dismisses it.
+- Never takes focus. Empty areas of its window let clicks through. Drag the character to move it, including to another monitor. It remembers where you left it.
 
 ## Build
 
@@ -25,27 +25,27 @@ This gives `target\release\desktop-assistant.exe` and `target\release\da-hook.ex
 
 ## First run
 
-1. Start `desktop-assistant.exe`. The robot appears at the bottom right of the main monitor, asleep.
+1. Start `desktop-assistant.exe`. The character appears at the bottom right of the main monitor, asleep.
 2. Right-click the tray icon and choose **Connect to Claude Code**. It asks first, makes a backup, then adds hook entries for nine events to `%USERPROFILE%\.claude\settings.json`. Your own hooks are kept.
-3. Start a Claude Code session. The robot wakes up.
+3. Start a Claude Code session. The character wakes up.
 
 Running sessions pick up new hooks only when they start, so restart any session that was already open.
 
 ## Tray menu
 
-- **Hide / Show**: hides or shows the robot.
-- **Do not disturb**: mutes sound and speech. The robot still animates.
+- **Hide / Show**: hides or shows the character.
+- **Do not disturb**: mutes sound and speech. The character still animates.
 - **Approve in window**: ticked by default. When on, permission requests can be answered in the panel (see Approvals). Turning it off hands every held request back to Claude Code at once. Your choice is remembered.
 - **Voice**: lists the Windows voices installed on this PC. Picking one speaks a short sample and remembers your choice in `%APPDATA%\DesktopAssistant\voice.txt`. The sample is muted during Do not disturb. If a saved voice is uninstalled, the Windows default is used.
 - **Avatar**: picks the character: Robot (the default), Dog, Cat, Paperclip or Skeleton. The change shows at once and is remembered.
-- **Holidays**: **Enabled** turns every holiday hat on or off at once. **Months** has one tick per month; a ticked month's hat appears on the robot for that whole month (see Hats). Your choices are remembered.
+- **Holidays**: **Enabled** turns every holiday hat on or off at once. **Months** has one tick per month; a ticked month's hat appears on the character for that whole month (see Hats). Your choices are remembered.
 - **Connect to Claude Code**: ticked when the hooks are installed. Click again to remove only our entries.
 - **Open rules file**: opens `rules.toml` in Notepad.
 - **Quit**.
 
 ## Hotkey
 
-`Ctrl+Alt+D` hides or shows the robot without taking focus. If another app already owns that key, the robot shows a warning marker and the tray still works.
+`Ctrl+Alt+D` hides or shows the character without taking focus. If another app already owns that key, the character shows a warning marker and the tray still works.
 
 ## Where files live
 
@@ -53,7 +53,7 @@ Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robo
 
 ## Hats
 
-The robot wears a hat for the month on your PC's clock. The hat changes within a minute of midnight on the 1st, or of the PC waking up.
+The character wears a hat for the month on your PC's clock. The hat changes within a minute of midnight on the 1st, or of the PC waking up.
 
 | Month | Hat |
 |---|---|
@@ -70,11 +70,11 @@ The robot wears a hat for the month on your PC's clock. The hat changes within a
 | November | Thanksgiving pilgrim hat |
 | December | Santa hat |
 
-In the tray, **Holidays** > **Enabled** turns all hats on or off. Turning it off keeps your month ticks, so turning it back on brings back the same months. To skip only some holidays, untick those months under **Holidays** > **Months**. With no hat, the robot looks as it always has, antenna and all. The choices are saved in `%APPDATA%\DesktopAssistant\hats.json`, for example `{"enabled":true,"off":[2,10]}`. A missing or unreadable file means on with every hat, and a file without `enabled` counts as on.
+In the tray, **Holidays** > **Enabled** turns all hats on or off. Turning it off keeps your month ticks, so turning it back on brings back the same months. To skip only some holidays, untick those months under **Holidays** > **Months**. With no hat, the character looks as it always has (the robot keeps its antenna). The choices are saved in `%APPDATA%\DesktopAssistant\hats.json`, for example `{"enabled":true,"off":[2,10]}`. A missing or unreadable file means on with every hat, and a file without `enabled` counts as on.
 
 ## Rules file
 
-`rules.toml` decides how you are told, never what happens. It is created with safe defaults on first run and reloaded when you save it. If you save a broken file, the last working rules stay in use and the robot shows a `!` marker (hover it for the reason). Fix the file and the marker clears.
+`rules.toml` decides how you are told, never what happens. It is created with safe defaults on first run and reloaded when you save it. If you save a broken file, the last working rules stay in use and the character shows a `!` marker (hover it for the reason). Fix the file and the marker clears.
 
 The first matching rule wins. If none matches, the event is silent.
 
@@ -88,11 +88,11 @@ Conditions (every condition you write must match):
 
 | Condition | Meaning |
 |---|---|
-| `event` | Hook event name, such as `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `PostToolUseFailure`. |
+| `event` | Hook event name, such as `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `PostToolUseFailure` or `PermissionDenied` (auto mode refused a command). An MCP server asking for input arrives as `Notification` with `notification_type` `elicitation_dialog`. |
 | `project` | The project folder name. Not case sensitive. |
 | `tool` | Tool name, such as `Bash` or `Edit`. |
 | `source` | Where the session runs, as reported by Claude Code (for example `cli`). |
-| `notification_type` | The notification kind, such as `permission_prompt` or `idle_prompt`. |
+| `notification_type` | The notification kind, such as `permission_prompt`, `elicitation_dialog`, `elicitation_url_dialog` or `idle_prompt`. |
 | `min_turn_seconds` | The turn lasted at least this many seconds. |
 
 `event`, `project`, `tool`, `source` and `notification_type` accept one string or a list: `event = ["PermissionRequest", "Notification"]`. Unknown condition names are an error.
@@ -101,7 +101,7 @@ Result (`then`):
 
 | Field | Meaning |
 |---|---|
-| `tier` | `needs_you`, `good_to_know` or `silent` (animation only). The tier sets how you are told, with sound and speech; it does not itself keep the robot waving. The robot waves only while a session is really blocked on a permission request or notification. |
+| `tier` | `needs_you`, `good_to_know` or `silent` (animation only). The tier sets how you are told, with sound and speech; it does not itself keep the character waving. The character waves only while a session is really blocked on a permission request, a notification or an MCP server's question. |
 | `sound` | `"alert"` or `"bell"`. |
 | `speak` | Text to say. `{project}` becomes the project name. |
 
@@ -130,7 +130,7 @@ The panel can answer some Claude Code permission requests for you. Rules, voice 
 
 **What the window handles.** When a session asks permission to use a tool, the request is held and shown in the panel with the tool and what it wants to do. You answer there instead of in the terminal.
 
-**What goes straight back to Claude Code.** A request is not held when the robot is hidden, Do not disturb is on, or **Approve in window** is off. It goes back at once and Claude Code asks you its usual way. Hiding the robot, turning on Do not disturb or turning the switch off also hands back everything already held.
+**What goes straight back to Claude Code.** A request is not held when the character is hidden, Do not disturb is on, or **Approve in window** is off. It goes back at once and Claude Code asks you its usual way. Hiding the character, turning on Do not disturb or turning the switch off also hands back everything already held.
 
 **The hold.** By default a request is held for 120 seconds (2 minutes). If you have not answered, it goes back to Claude Code, which asks its usual way (in an interactive session you are asked in the terminal; see the limits below for `claude -p`). To change the time, edit the app's settings file while the app is closed: `%APPDATA%\DesktopAssistant\approvals.json`:
 
@@ -167,11 +167,18 @@ The buttons are locked for 1 second after a request appears, so a click meant fo
 
 ## Known limits
 
-- The robot may keep waving through a long-running tool you already approved, until that session's next event.
+- The character may keep waving through a long-running tool you already approved, until that session's next event.
 - After the app restarts, a session already sitting at a prompt is invisible until its next event, and a turn already running gets no bell when it ends.
 - With several Windows Terminal windows open, jump can raise the wrong one.
 - Only one copy runs per Windows account and data folder; starting a second does nothing and exits.
-- If you move the app folder, the hook entries point at the old place. The robot shows a warning; choose **Connect to Claude Code** in the tray to repair them.
+- If you move the app folder, the hook entries point at the old place. The character shows a warning; choose **Connect to Claude Code** in the tray to repair them. The same warning shows after updating to a version that listens for more events, until you connect again.
+- `rules.toml` is written only on first run, so one made by an older version has no rule for `PermissionDenied` and stays silent when auto mode refuses a command. To hear about it, add:
+
+  ```toml
+  [[rule]]
+  when = { event = "PermissionDenied" }
+  then = { tier = "good_to_know", sound = "alert", speak = "{project}: auto mode blocked a command" }
+  ```
 - A Stop cannot tell a finished task from a question asked in plain text. Both look like "done".
 - For desktop app sessions, jump brings the Claude app forward, not the specific session.
 - For Windows Terminal, jump raises the window, not the tab.
@@ -284,3 +291,17 @@ Needs you:
 
 - Switching avatars from the tray while the app runs.
 - Each avatar during real Claude Code sessions.
+
+## Verification results (Skeleton, MCP questions, auto mode denials)
+
+Checked 2026-11-08 on Windows 11, with the app in a temporary data folder:
+
+- Skeleton in every state and month (`hats-preview.html?avatar=skeleton`); tried in the app by the owner.
+- Resources, animating (waving), measured back to back: skeleton 0.50% and 0.48% GPU, robot 0.47% and 0.51%; 159-162 MB private. The skeleton costs the same as the robot. All readings ran higher than the 0.34% recorded for Stage 2.5.
+- A saved dog appears as the dog from the first frame (12 screenshots, 120 ms apart, from launch); the robot no longer shows first.
+- Through `da-hook.exe`: Elicitation made the character wave at once, ElicitationResult returned it to thinking, and PermissionDenied left it working with a good-to-know alert. The hook printed nothing and exited 0 for each, so Claude Code shows its own dialog and keeps its own decision.
+
+Needs you:
+
+- Click **Connect to Claude Code** once after updating; until then the character shows the warning marker.
+- A real MCP server that asks for input, and a real auto mode denial.
