@@ -9,7 +9,7 @@ param(
   [int]$Seconds = 20,
   # Folder holding release\desktop-assistant.exe; defaults to the repo target folder.
   [string]$TargetDir = (Join-Path $PSScriptRoot "..\target"),
-  # Avatar to measure (robot, dog, cat or paperclip), written to the sandbox's avatar.txt.
+  # Avatar to measure (robot, dog, cat, paperclip or skeleton), written to the sandbox's avatar.txt.
   [string]$Avatar = "robot"
 )
 

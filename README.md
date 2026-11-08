@@ -291,3 +291,17 @@ Needs you:
 
 - Switching avatars from the tray while the app runs.
 - Each avatar during real Claude Code sessions.
+
+## Verification results (Skeleton, MCP questions, auto mode denials)
+
+Checked 2026-11-08 on Windows 11, with the app in a temporary data folder:
+
+- Skeleton in every state and month (`hats-preview.html?avatar=skeleton`); tried in the app by the owner.
+- Resources, animating (waving), measured back to back: skeleton 0.50% and 0.48% GPU, robot 0.47% and 0.51%; 159-162 MB private. The skeleton costs the same as the robot. All readings ran higher than the 0.34% recorded for Stage 2.5.
+- A saved dog appears as the dog from the first frame (12 screenshots, 120 ms apart, from launch); the robot no longer shows first.
+- Through `da-hook.exe`: Elicitation made the character wave at once, ElicitationResult returned it to thinking, and PermissionDenied left it working with a good-to-know alert. The hook printed nothing and exited 0 for each, so Claude Code shows its own dialog and keeps its own decision.
+
+Needs you:
+
+- Click **Connect to Claude Code** once after updating; until then the character shows the warning marker.
+- A real MCP server that asks for input, and a real auto mode denial.
