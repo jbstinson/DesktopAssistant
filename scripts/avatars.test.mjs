@@ -9,7 +9,7 @@ const ids = (markup) => [...markup.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1])
 const count = (text, part) => text.split(part).length - 1;
 
 test("the avatars, in menu order", () => {
-  assert.deepEqual(Object.keys(AVATARS), ["robot", "dog", "cat", "paperclip"]);
+  assert.deepEqual(Object.keys(AVATARS), ["robot", "dog", "cat", "paperclip", "skeleton"]);
 });
 
 test("anything unknown is the robot", () => {
