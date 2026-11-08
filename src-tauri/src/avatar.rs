@@ -3,7 +3,7 @@
 use std::path::Path;
 
 /// Id and tray label of every avatar, in menu order. The first is the default.
-pub const AVATARS: [(&str, &str); 4] = [("robot", "Robot"), ("dog", "Dog"), ("cat", "Cat"), ("paperclip", "Paperclip")];
+pub const AVATARS: [(&str, &str); 5] = [("robot", "Robot"), ("dog", "Dog"), ("cat", "Cat"), ("paperclip", "Paperclip"), ("skeleton", "Skeleton")];
 
 /// The avatar with this id, or the robot for anything unknown.
 pub fn known(id: &str) -> &'static str {
