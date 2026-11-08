@@ -6,7 +6,7 @@
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 
-pub const EVENTS: [&str; 9] = [
+pub const EVENTS: [&str; 12] = [
     "SessionStart",
     "SessionEnd",
     "UserPromptSubmit",
@@ -16,6 +16,9 @@ pub const EVENTS: [&str; 9] = [
     "Notification",
     "Stop",
     "StopFailure",
+    "Elicitation",
+    "ElicitationResult",
+    "PermissionDenied",
 ];
 
 pub enum Change {
@@ -293,7 +296,7 @@ mod tests {
                     json!({"hooks":[{"type":"command","command":CMD,"timeout":timeout}]})
                 );
             }
-            assert_eq!(out["hooks"].as_object().unwrap().len(), 9);
+            assert_eq!(out["hooks"].as_object().unwrap().len(), 12);
         }
     }
 
@@ -323,6 +326,22 @@ mod tests {
     fn add_twice_equals_add_once() {
         let once = add("{\"a\":1}", HP).unwrap();
         assert_eq!(add(&once, HP).unwrap(), once);
+    }
+
+    #[test]
+    fn an_install_without_the_newer_events_is_stale_until_connect_adds_them() {
+        let mut old = v(&add("", HP).unwrap());
+        for ev in ["Elicitation", "ElicitationResult", "PermissionDenied"] {
+            old["hooks"].as_object_mut().unwrap().remove(ev);
+        }
+        let old = old.to_string();
+        assert!(!is_installed(&old, HP));
+        assert!(has_any(&old));
+        let repaired = add(&old, HP).unwrap();
+        assert!(is_installed(&repaired, HP));
+        for ev in ["Elicitation", "ElicitationResult", "PermissionDenied"] {
+            assert_eq!(v(&repaired)["hooks"][ev][0]["hooks"][0]["timeout"], 5, "{ev}");
+        }
     }
 
     #[test]
