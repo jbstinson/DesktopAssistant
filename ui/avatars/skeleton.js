@@ -37,12 +37,9 @@ const rib = (y, w) =>
 
 const RIBS = [rib(95, 17), rib(103, 16), rib(111, 13)].join("");
 
-/** Teeth along the jaw; the one at index 3 is missing. */
+/** Teeth along the jaw, slightly uneven. */
 const TEETH = [53, 58, 63, 68, 73, 78, 83]
-  .map((x, i) =>
-    i === 3
-      ? `<rect x="${x}" y="70" width="4.2" height="6" fill="${VOID}"/>`
-      : `<rect x="${x}" y="69.5" width="4.2" height="${i % 2 ? 7.5 : 7}" rx="1.2" fill="${BONE}" stroke="${LINE}" stroke-width="0.9"/>`)
+  .map((x, i) => `<rect x="${x}" y="69.5" width="4.2" height="${i % 2 ? 7.5 : 7}" rx="1.2" fill="${BONE}" stroke="${LINE}" stroke-width="0.9"/>`)
   .join("");
 
 export default {
