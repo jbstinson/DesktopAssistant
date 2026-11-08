@@ -1,5 +1,5 @@
 // The skeleton, from the ribs up, in a gothic memento mori style: aged bone, hollow sockets with
-// faint crimson embers, worn teeth, and a high-collared black cloak with an iron cross. Its arms
+// faint crimson embers, worn teeth, and an iron cross on a chain. Its arms
 // are built like the robot's (shoulders at (36.5, 92) and (103.5, 92), elbows 15 below, three
 // finger bones per hand) so it types, reads, waves and rings the bell with the robot's moves.
 // The embers move inside fixed eye sockets. Poses live in skeleton.css.
@@ -10,8 +10,6 @@ const BONE = "#e8dfc9";
 const SHADE = "#bfb293";
 const LINE = "#3b342b";
 const VOID = "#0c0a09";
-const CLOAK = "#1c1626";
-const CLOAK_EDGE = "#3b2f4f";
 
 /** One arm: upper arm, then the forearm group that bends at the elbow, ending in finger bones. */
 function arm(side, x) {
@@ -52,17 +50,13 @@ export default {
   hatTransform: "",
   art: `
 ${KEYS}
-  <path d="M48 90 L22 52 L36 58 L42 68 L58 84 Z M92 90 L118 52 L104 58 L98 68 L82 84 Z" fill="${CLOAK}" stroke="${CLOAK_EDGE}" stroke-width="1.4" stroke-linejoin="round"/>
-  <path d="M46 86 L28 58 M94 86 L112 58" stroke="#7f1d1d" stroke-width="1.6" stroke-linecap="round"/>
   <ellipse cx="70" cy="105" rx="22" ry="17" fill="${VOID}" opacity="0.55"/>
   <g fill="none" stroke-linecap="round">
-    <g stroke="${LINE}" stroke-width="5.5">${RIBS}</g>
-    <g stroke="${BONE}" stroke-width="3.2">${RIBS}</g>
+    <g stroke="${LINE}" stroke-width="5.5">${RIBS}<path d="M40 90 Q70 83 100 90"/></g>
+    <g stroke="${BONE}" stroke-width="3.2">${RIBS}<path d="M40 90 Q70 83 100 90"/></g>
   </g>
   <rect x="66.5" y="80" width="7" height="42" rx="3.5" fill="${BONE}" stroke="${LINE}" stroke-width="1.2"/>
   <path d="M66.5 88 H73.5 M66.5 96 H73.5 M66.5 104 H73.5 M66.5 112 H73.5" stroke="${LINE}" stroke-width="1"/>
-  <path d="M22 126 Q20 98 36 86 Q48 80 58 86 Q50 102 54 126 L48 121 L42 127 L36 121 L29 127 Z" fill="${CLOAK}" stroke="${CLOAK_EDGE}" stroke-width="1.4" stroke-linejoin="round"/>
-  <path d="M118 126 Q120 98 104 86 Q92 80 82 86 Q90 102 86 126 L92 121 L98 127 L104 121 L111 127 Z" fill="${CLOAK}" stroke="${CLOAK_EDGE}" stroke-width="1.4" stroke-linejoin="round"/>
   <path d="M56 86 Q70 99 84 86" fill="none" stroke="#a1a1aa" stroke-width="1" stroke-dasharray="1.6 1.2"/>
   <g fill="#d4d4d8" stroke="#18181b" stroke-width="1">
     <rect x="68.2" y="96" width="3.6" height="15" rx="0.6"/>
