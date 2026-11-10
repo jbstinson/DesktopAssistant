@@ -60,7 +60,7 @@ The character wears a hat for the month on your PC's clock. The hat changes with
 | January | New Year party cone |
 | February | Valentine's heart headband |
 | March | St. Patrick's green top hat |
-| April | Easter bunny ears |
+| April | Yellow rain hat |
 | May | Flower crown |
 | June | Straw sun hat |
 | July | Stars-and-stripes top hat |
@@ -68,7 +68,7 @@ The character wears a hat for the month on your PC's clock. The hat changes with
 | September | Fall knit beanie with a falling leaf |
 | October | Halloween witch hat |
 | November | Thanksgiving pilgrim hat |
-| December | Santa hat |
+| December | Earmuffs and snowflakes |
 
 In the tray, **Holidays** > **Enabled** turns all hats on or off. Turning it off keeps your month ticks, so turning it back on brings back the same months. To skip only some holidays, untick those months under **Holidays** > **Months**. With no hat, the character looks as it always has (the robot keeps its antenna). The choices are saved in `%APPDATA%\DesktopAssistant\hats.json`, for example `{"enabled":true,"off":[2,10]}`. A missing or unreadable file means on with every hat, and a file without `enabled` counts as on.
 

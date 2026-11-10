@@ -1,5 +1,5 @@
 // The skeleton, from the ribs up, in a gothic memento mori style: aged bone, hollow sockets with
-// faint crimson embers, worn teeth, and an iron cross on a chain. Its arms
+// faint crimson embers, and worn teeth. Its arms
 // are built like the robot's (shoulders at (36.5, 92) and (103.5, 92), elbows 15 below, three
 // finger bones per hand) so it types, reads, waves and rings the bell with the robot's moves.
 // The embers move inside fixed eye sockets. Poses live in skeleton.css.
@@ -54,11 +54,6 @@ ${KEYS}
   </g>
   <rect x="66.5" y="80" width="7" height="42" rx="3.5" fill="${BONE}" stroke="${LINE}" stroke-width="1.2"/>
   <path d="M66.5 88 H73.5 M66.5 96 H73.5 M66.5 104 H73.5 M66.5 112 H73.5" stroke="${LINE}" stroke-width="1"/>
-  <path d="M56 86 Q70 99 84 86" fill="none" stroke="#a1a1aa" stroke-width="1" stroke-dasharray="1.6 1.2"/>
-  <g fill="#d4d4d8" stroke="#18181b" stroke-width="1">
-    <rect x="68.2" y="96" width="3.6" height="15" rx="0.6"/>
-    <rect x="64" y="99.5" width="12" height="3.6" rx="0.6"/>
-  </g>
 ${BOOK}
 ${arm("left", 36.5)}
 ${arm("right", 103.5)}

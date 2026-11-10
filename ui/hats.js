@@ -5,6 +5,8 @@
 export const HAT_DEFS = `<defs>
   <path id="hat-heart" d="M0 -2 C -3 -7 -10 -5 -9 1 C -8 5 -3 8 0 11 C 3 8 8 5 9 1 C 10 -5 3 -7 0 -2 z"/>
   <polygon id="hat-star" points="0,-3 0.9,-0.9 3,-0.9 1.3,0.4 1.9,2.6 0,1.3 -1.9,2.6 -1.3,0.4 -3,-0.9 -0.9,-0.9"/>
+  <path id="hat-drop" d="M0 -5 Q4 1 0 3 Q-4 1 0 -5 z"/>
+  <path id="hat-flake" d="M0 -5 V5 M-4.3 -2.5 L4.3 2.5 M-4.3 2.5 L4.3 -2.5" stroke-width="1.6" stroke-linecap="round"/>
 </defs>`;
 
 const HATS = {
@@ -24,9 +26,12 @@ const HATS = {
     <ellipse cx="70" cy="25" rx="34" ry="5" fill="#15803d"/>
     <g fill="#86efac"><circle cx="80" cy="-1" r="4"/><circle cx="86" cy="-1" r="4"/><circle cx="83" cy="-6" r="4"/></g>
     <path d="M83 0 L85 8" stroke="#86efac" stroke-width="1.5"/>`,
-  // April: bunny ears.
-  4: `<g transform="rotate(-12 54 26)"><ellipse cx="54" cy="2" rx="9" ry="25" fill="#f8fafc"/><ellipse cx="54" cy="4" rx="4.5" ry="18" fill="#f9a8d4"/></g>
-    <g transform="rotate(12 86 26)"><ellipse cx="86" cy="2" rx="9" ry="25" fill="#f8fafc"/><ellipse cx="86" cy="4" rx="4.5" ry="18" fill="#f9a8d4"/></g>`,
+  // April: yellow rain hat in April showers.
+  4: `<path d="M50 22 Q50 -2 70 -2 Q90 -2 90 22 z" fill="#facc15"/>
+    <path d="M60 0 Q58 10 59 21 M80 0 Q82 10 81 21" fill="none" stroke="#ca8a04" stroke-width="1"/>
+    <path d="M26 36 Q30 16 70 16 Q110 16 114 36 Q100 26 70 25 Q40 26 26 36 z" fill="#eab308"/>
+    <path d="M30 33 Q36 22 70 21 Q104 22 110 33" fill="none" stroke="#ca8a04" stroke-width="1" stroke-dasharray="2 2"/>
+    <g fill="#60a5fa"><use href="#hat-drop" x="34" y="-8"/><use href="#hat-drop" x="104" y="-2"/><use href="#hat-drop" x="116" y="-20"/><use href="#hat-drop" x="22" y="8"/><use href="#hat-drop" x="44" y="-22"/></g>`,
   // May: flower crown.
   5: `<path d="M32 31 Q70 13 108 31" fill="none" stroke="#16a34a" stroke-width="3.5" stroke-linecap="round"/>
     <circle cx="38" cy="26" r="6" fill="#f472b6"/><circle cx="54" cy="19" r="6" fill="#fde047"/><circle cx="70" cy="17" r="6.5" fill="#a78bfa"/><circle cx="86" cy="19" r="6" fill="#fb923c"/><circle cx="102" cy="26" r="6" fill="#f472b6"/>
@@ -64,10 +69,11 @@ const HATS = {
     <rect x="53" y="10" width="34" height="9" fill="#0c0a09"/>
     <rect x="64" y="9" width="12" height="11" rx="1" fill="none" stroke="#fbbf24" stroke-width="2.2"/>
     <ellipse cx="70" cy="25" rx="36" ry="5" fill="#1c1917"/>`,
-  // December: Santa hat.
-  12: `<path d="M34 26 Q42 -8 78 -10 Q104 -10 116 12 L110 15 Q100 0 86 2 Q100 12 106 26 z" fill="#dc2626"/>
-    <rect x="28" y="20" width="84" height="11" rx="5.5" fill="#f8fafc"/>
-    <circle cx="114" cy="16" r="6.5" fill="#f8fafc"/>`,
+  // December: fluffy earmuffs in falling snow.
+  12: `<path d="M34 34 Q34 -6 70 -6 Q106 -6 106 34" fill="none" stroke="#64748b" stroke-width="4" stroke-linecap="round"/>
+    <g fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"><circle cx="32" cy="34" r="11"/><circle cx="108" cy="34" r="11"/></g>
+    <g fill="#bae6fd"><circle cx="32" cy="34" r="5.5"/><circle cx="108" cy="34" r="5.5"/></g>
+    <g stroke="#bae6fd"><use href="#hat-flake" x="50" y="-14"/><use href="#hat-flake" x="92" y="-20"/><use href="#hat-flake" x="118" y="2"/><use href="#hat-flake" x="22" y="-4"/><use href="#hat-flake" x="70" y="-24"/></g>`,
 };
 
 /** The hat for `month` (1-12) as SVG markup, or "" for none. */
