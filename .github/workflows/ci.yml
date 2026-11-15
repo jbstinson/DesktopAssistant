@@ -1,0 +1,37 @@
+# Runs the UI tests and the Rust tests on every push to main and every pull request.
+# Windows only, like the app. Tests that need a real desktop (speech, the system clock, delivery
+# timing) are marked #[ignore] and stay skipped here.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: UI tests
+        run: node --test scripts/*.test.mjs
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Rust tests
+        run: cargo test --workspace --locked
