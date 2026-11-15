@@ -6,7 +6,7 @@ It never types anything in a session. A permission request is answered only by a
 
 ## What it does
 
-- Shows a character (a robot by default, or a dog, cat, paperclip or skeleton) that reacts to what your sessions are doing: asleep, reading, typing, thinking, needs-you, done, error.
+- Shows a character (a robot by default, or a dog, cat, paperclip, skeleton or 3D skeleton) that reacts to what your sessions are doing: asleep, reading, typing, thinking, needs-you, done, error.
 - Plays a short sound and speaks a short alert (built-in Windows voice) when a session needs you or finishes a long turn.
 - Click the character to open a panel that lists each session: project, source, state and time in that state. Click a session to jump to it. The small x dismisses it.
 - Never takes focus. Empty areas of its window let clicks through. Drag the character to move it, including to another monitor. It remembers where you left it.
@@ -37,7 +37,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 - **Do not disturb**: mutes sound and speech. The character still animates.
 - **Approve in window**: ticked by default. When on, permission requests can be answered in the panel (see Approvals). Turning it off hands every held request back to Claude Code at once. Your choice is remembered.
 - **Voice**: lists the Windows voices installed on this PC. Picking one speaks a short sample and remembers your choice in `%APPDATA%\DesktopAssistant\voice.txt`. The sample is muted during Do not disturb. If a saved voice is uninstalled, the Windows default is used.
-- **Avatar**: picks the character: Robot (the default), Dog, Cat, Paperclip or Skeleton. The change shows at once and is remembered.
+- **Avatar**: picks the character: Robot (the default), Dog, Cat, Paperclip, Skeleton or Skeleton 3D. The change shows at once and is remembered. Skeleton 3D uses a little more GPU (see 3D avatars).
 - **Holidays**: **Enabled** turns every holiday hat on or off at once. **Months** has one tick per month; a ticked month's hat appears on the character for that whole month (see Hats). Your choices are remembered.
 - **Connect to Claude Code**: ticked when the hooks are installed. Click again to remove only our entries.
 - **Open rules file**: opens `rules.toml` in Notepad.
@@ -50,6 +50,20 @@ Running sessions pick up new hooks only when they start, so restart any session 
 ## Where files live
 
 Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time), `avatar.txt` (the chosen avatar), `hats.json` (the Holidays switch and months whose hat is off) and `endpoint.json` (the local port and token that `da-hook` uses).
+
+## 3D avatars
+
+**Skeleton 3D** is drawn differently from the other avatars. Its art is modelled and rendered in Blender ahead of time (`art/skeleton3d/build.py`), and the app plays the rendered frames like a flipbook. That gives it real lighting, a moving jaw, flickering eyes, a 3D head turn and a page that turns, plus short transitions into each state and an occasional fidget while idle.
+
+What this costs on your system:
+
+- **GPU: about twice the other avatars while it animates.** It shows more frames per second than the flat avatars (typing steps about 13 times a second instead of about 7). Measured on the owner's PC: about 0.65% GPU while typing or waving, against about 0.3% for the robot. Asleep it uses about 0.1% instead of 0%, because its eyes pulse slowly while it sleeps.
+- **CPU and memory: no real change.** CPU stays at about 0% and memory stays about 160 MB private (most of that is WebView2, which every avatar uses).
+- **Disk: about 1.4 MB** of image strips, built into the app.
+
+All of these stay well under the app's 2% GPU target. If you want the lightest setup, pick one of the flat avatars.
+
+Skeleton 3D does not wear the holiday hats yet.
 
 ## Hats
 
@@ -305,3 +319,15 @@ Needs you:
 
 - Click **Connect to Claude Code** once after updating; until then the character shows the warning marker.
 - A real MCP server that asks for input, and a real auto mode denial.
+
+## Verification results (Skeleton 3D)
+
+Measured with `scripts\measure.ps1 -Avatar <id>` (asleep and waving) and a copy of it that sends an Edit tool event (typing), whole process tree, 20 seconds each, in a sandboxed copy of the app:
+
+| State | Skeleton 3D GPU | Robot GPU | CPU | Private memory |
+|---|---|---|---|---|
+| Asleep | 0.11% average (0.21% peak) | 0.00% | 0.00% | 156-162 MB |
+| Waving | 0.64% average (0.92% peak) | 0.31% average (0.70% peak) | 0.00-0.01% | about 160 MB |
+| Typing | 0.67-0.68% average (about 0.9% peak) | 0.31% average (0.57% peak) | 0.00-0.01% | about 165 MB |
+
+Two robot typing runs were discarded: one caught a leftover process (14 processes, double memory) and one ran before the app had started (0 processes). The robot was re-run until it gave a normal 7-process reading.
