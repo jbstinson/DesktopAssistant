@@ -23,6 +23,15 @@ npx tauri build --no-bundle
 
 This gives `target\release\desktop-assistant.exe` and `target\release\da-hook.exe`. Keep the two files in the same folder: the app looks for `da-hook.exe` beside itself.
 
+To run the tests:
+
+```
+node --test scripts/*.test.mjs
+cargo test --workspace
+```
+
+GitHub runs both on every pull request and every push to `main` (`.github/workflows/ci.yml`, on Windows). A few tests need a real desktop (the Windows speech engine, the system clock) and are skipped there and in a plain `cargo test`.
+
 ## First run
 
 1. Start `desktop-assistant.exe`. The character appears at the bottom right of the main monitor, asleep.
