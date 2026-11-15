@@ -1,6 +1,9 @@
-/* The 3D skeleton's states: only the current state's strip shows (display, so hidden strips stop
-   animating), and it steps one frame (140 units) at a time. Transform only, in steps, like the
-   other avatars. A strip that plays once holds its last frame. Hats are off for this avatar. */
+/* The 3D skeleton: one strip per clip, stepped one frame (140 units) at a time with transform only,
+   like the other avatars. Only one strip shows (display, so hidden strips stop animating). A strip
+   that plays once holds its last frame. Hats are off for this avatar.
+
+   In the app a player marks the character with data-clip and the clip to show with .on; without
+   a player (the preview page) each state shows its own loop. */
 
 [data-avatar="skeleton3d"] .s3 { display: none; }
 [data-avatar="skeleton3d"][data-state="asleep"] #s3-asleep,
@@ -11,6 +14,8 @@
 [data-avatar="skeleton3d"][data-state="done"] #s3-done,
 [data-avatar="skeleton3d"][data-state="needs-you"] #s3-needs-you,
 [data-avatar="skeleton3d"][data-state="error"] #s3-error { display: inline; }
+[data-avatar="skeleton3d"] #character[data-clip] .s3 { display: none; }
+[data-avatar="skeleton3d"] #character[data-clip] .s3.on { display: inline; }
 [data-avatar="skeleton3d"] .s3-strip { animation: s3-play var(--dur) steps(var(--steps)) var(--iter) both; }
 @keyframes s3-play {
   from { transform: translateX(0); }
