@@ -9,7 +9,7 @@ const ids = (markup) => [...markup.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1])
 const count = (text, part) => text.split(part).length - 1;
 
 test("the avatars, in menu order", () => {
-  assert.deepEqual(Object.keys(AVATARS), ["robot", "dog", "cat", "paperclip", "skeleton"]);
+  assert.deepEqual(Object.keys(AVATARS), ["robot", "dog", "cat", "paperclip", "skeleton", "skeleton3d"]);
 });
 
 test("anything unknown is the robot", () => {
@@ -43,3 +43,14 @@ for (const [name, avatar] of Object.entries(AVATARS)) {
     assert.equal(new Set(all).size, all.length, `${name}: ${all.filter((x, i) => all.indexOf(x) !== i)}`);
   });
 }
+
+test("the 3D skeleton has a strip for every state, each a whole number of frames", async () => {
+  const { default: strips } = await import("../ui/avatars/skeleton3d/strips.js");
+  const STATES = ["asleep", "idle", "typing", "reading", "thinking", "done", "needs-you", "error"];
+  assert.deepEqual(Object.keys(strips).sort(), [...STATES].sort());
+  for (const [state, s] of Object.entries(strips)) {
+    assert.ok(Number.isInteger(s.frames) && s.frames >= 2, `${state} frames`);
+    assert.ok(s.seconds > 0 && typeof s.loop === "boolean", state);
+    assert.ok(AVATARS.skeleton3d.art.includes(`id="s3-${state}"`), state);
+  }
+});

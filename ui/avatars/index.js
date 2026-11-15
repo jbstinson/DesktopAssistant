@@ -6,8 +6,9 @@ import dog from "./dog.js";
 import cat from "./cat.js";
 import paperclip from "./paperclip.js";
 import skeleton from "./skeleton.js";
+import skeleton3d from "./skeleton3d.js";
 
-export const AVATARS = { robot, dog, cat, paperclip, skeleton };
+export const AVATARS = { robot, dog, cat, paperclip, skeleton, skeleton3d };
 
 /** The avatar with this id, or the robot for anything unknown. */
 export function avatarFor(id) {
