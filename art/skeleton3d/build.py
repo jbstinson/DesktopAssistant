@@ -205,18 +205,23 @@ def main():
 
     # ---------- props: an open book (reading) and a hand bell (done) ----------
     PAGE, _ = principled("Page", (0.93, 0.91, 0.85), 0.8)
-    COVER, _ = principled("Cover", (0.42, 0.14, 0.05), 0.55)
+    COVER, _ = principled("Cover", (0.20, 0.06, 0.025), 0.5)
     INK, _ = principled("Ink", (0.35, 0.37, 0.42), 0.8)
     BRASS, brb = principled("Brass", (0.85, 0.62, 0.18), 0.3)
     brb.inputs["Metallic"].default_value = 1.0
     WOOD, _ = principled("Wood", (0.35, 0.18, 0.07), 0.6)
-    book = empty("book", (0, -0.47, 0.66))
-    rbox("cover", (0, -0.46, 0.66), (0.52, 0.014, 0.36), COVER, book, bevel=0.01)
+    # The book is held the way a reader holds it: pages toward the skull, spine toward the viewer,
+    # each half folded back from the spine toward a hand, and the top tipped back toward the face.
+    book = empty("book", (0, -0.6, 0.66))
+    rbox("spine", (0, -0.635, 0.66), (0.03, 0.02, 0.35), COVER, book, bevel=0.012)
     for s in (-1, 1):
-        rbox(f"page{s}", (0.255 * s, -0.48, 0.66), (0.24, 0.01, 0.33), PAGE, book, bevel=0.008)
+        half = empty(f"half{s}", (0, -0.62, 0.66), book)
+        rbox(f"cover{s}", (0.26 * s, -0.62, 0.66), (0.26, 0.012, 0.35), COVER, half, bevel=0.01)
+        rbox(f"page{s}", (0.25 * s, -0.596, 0.66), (0.24, 0.012, 0.33), PAGE, half, bevel=0.008)
         for k in range(6):
-            rbox(f"line{s}{k}", (0.255 * s, -0.492, 0.86 - 0.075 * k), (0.17 if k % 3 else 0.12, 0.002, 0.008), INK, book, bevel=0.002)
-    rbox("spine", (0, -0.49, 0.66), (0.012, 0.012, 0.33), COVER, book, bevel=0.004)
+            rbox(f"line{s}{k}", (0.25 * s, -0.583, 0.86 - 0.075 * k), (0.17 if k % 3 else 0.12, 0.002, 0.008), INK, half, bevel=0.002)
+        half.rotation_euler = (0, 0, math.radians(25 * s))
+    book.rotation_euler = (math.radians(-30), 0, 0)
     # The bell hangs from the right hand. Its pivot turns against the arm so it always hangs down.
     bell = empty("bell", (0.57, 0, -0.17), el_r)
     limb("bellhandle", (0.57, 0, -0.17), (0.57, 0, -0.30), 0.026, WOOD, bell, knobs=0)
