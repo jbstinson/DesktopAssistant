@@ -134,13 +134,17 @@ function wearHat(month) {
 }
 
 // A new avatar replaces only the character SVG; the hat is put back on the new head below.
+// An avatar with a player (the 3D skeleton) gets one for its new SVG, and apply() tells it the state.
 let avatarShown = null;
+let player = null;
 function wearAvatar(id) {
-  const avatar = avatarFor(id).id;
-  if (avatar === avatarShown) return;
-  avatarShown = avatar;
-  parts = mountCharacter(robot, avatar);
-  document.body.dataset.avatar = avatar;
+  const avatar = avatarFor(id);
+  if (avatar.id === avatarShown) return;
+  avatarShown = avatar.id;
+  player?.stop();
+  parts = mountCharacter(robot, avatar.id);
+  player = avatar.player ? avatar.player(robot.querySelector("svg#character")) : null;
+  document.body.dataset.avatar = avatar.id;
   hatShown = undefined;
 }
 
@@ -152,6 +156,7 @@ function apply(snap) {
   body.dataset.multi = String(snap.waiting > 1);
   body.dataset.warning = String(Boolean(snap.warning));
   wearAvatar(snap.avatar);
+  player?.setState(snap.state);
   parts.badgeCount.textContent = snap.waiting > 1 ? String(snap.waiting) : "";
   wearHat(snap.hat ?? null);
   robot.title = snap.warning || "";

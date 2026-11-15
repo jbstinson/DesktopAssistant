@@ -9,7 +9,7 @@ const ids = (markup) => [...markup.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1])
 const count = (text, part) => text.split(part).length - 1;
 
 test("the avatars, in menu order", () => {
-  assert.deepEqual(Object.keys(AVATARS), ["robot", "dog", "cat", "paperclip", "skeleton"]);
+  assert.deepEqual(Object.keys(AVATARS), ["robot", "dog", "cat", "paperclip", "skeleton", "skeleton3d"]);
 });
 
 test("anything unknown is the robot", () => {
@@ -43,3 +43,18 @@ for (const [name, avatar] of Object.entries(AVATARS)) {
     assert.equal(new Set(all).size, all.length, `${name}: ${all.filter((x, i) => all.indexOf(x) !== i)}`);
   });
 }
+
+test("the 3D skeleton has a loop for every state, and its other clips are transitions or fidgets", async () => {
+  const { default: strips } = await import("../ui/avatars/skeleton3d/strips.js");
+  const STATES = ["asleep", "idle", "typing", "reading", "thinking", "done", "needs-you", "error"];
+  for (const state of STATES) assert.ok(Object.hasOwn(strips, state), state);
+  for (const [clip, s] of Object.entries(strips)) {
+    assert.ok(Number.isInteger(s.frames) && s.frames >= 2, `${clip} frames`);
+    assert.ok(s.seconds > 0 && typeof s.loop === "boolean", clip);
+    assert.ok(AVATARS.skeleton3d.art.includes(`id="s3-${clip}"`), clip);
+    if (STATES.includes(clip)) continue;
+    const intro = clip.endsWith("-in") && STATES.includes(clip.slice(0, -3));
+    assert.ok(intro || clip.startsWith("fidget-"), `${clip} is neither a transition nor a fidget`);
+    assert.equal(s.loop, false, `${clip} must play once so the player moves on`);
+  }
+});
