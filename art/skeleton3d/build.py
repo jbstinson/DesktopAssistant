@@ -348,6 +348,39 @@ def main():
     L("reading arms", RA, RB, "hand", f"{Q.x:.3f} {Q.y:.3f} {Q.z:.3f}")
     L("typing arms", A0, B0, "tip", f"{P0.x:.3f} {P0.y:.3f} {P0.z:.3f}", "key top", key_top)
 
+    # Asleep, the arms lie crossed over the chest and stay still. For each arm, find the shoulder
+    # lift and inward swing, the elbow bend and the forearm swing (about the upper arm) that put its
+    # hand on the opposite side of the chest, with the elbow low and the whole forearm in front of
+    # the ribs. Worked out with plain matrices, since the rig rests upright when the torso does not lean.
+    from mathutils import Euler
+    def cross(side, target, front):
+        S = Vector((0.57 * side, 0, 0.8)); E = Vector((0.57 * side, 0, 0.37)); H = Vector((0.57 * side, 0, -0.06))
+        goal = Vector(target)
+        best = None
+        for a in range(-60, 11, 4):
+            for c in range(-60, 61, 5):
+                Rs = Euler((r(a), 0, r(c)), "XYZ").to_matrix()
+                elbow = S + Rs @ (E - S)
+                if elbow.z > 0.65 or abs(elbow.x) < 0.2 or elbow.y > front:
+                    continue
+                for b in range(-160, 1, 5):
+                    for d in range(-100, 101, 5):
+                        Re = Euler((r(b), 0, r(d)), "XYZ").to_matrix()
+                        hand = S + Rs @ ((E - S) + Re @ (H - E))
+                        mid = (elbow + hand) / 2
+                        if mid.y > front or hand.y > front:
+                            continue
+                        err = (hand - goal).length_squared
+                        if best is None or err < best[0]:
+                            best = (err, a, c, b, d, hand, elbow)
+        _, a, c, b, d, hand, elbow = best
+        L("crossed arm", side, (a, c, b, d), "hand", " ".join(f"{v:.2f}" for v in hand),
+          "elbow", " ".join(f"{v:.2f}" for v in elbow))
+        return (a, 0, c), (b, 0, d)
+    # The left arm crosses slightly higher and in front of the right one, so they do not meet.
+    CROSS_SL, CROSS_EL = cross(-1, (0.2, -0.46, 0.66), -0.34)
+    CROSS_SR, CROSS_ER = cross(1, (-0.2, -0.39, 0.6), -0.32)
+
     # ---------- the clips: (frames, seconds per pass, repeats) ----------
     TYPE = f(DEF, torso=LEAN, head=(10, 0, 0), sl=(A0, 0, 0), sr=(A0, 0, 0), el=(B0, 0, 0), er=(B0, 0, 0),
              props=("keyboard",), jaw=(2, 0, 0))
@@ -373,7 +406,7 @@ def main():
     RING = f(DEF, head=(0, -6, 6), sr=(0, -60, 0), er=(0, -130, 0), props=("bell",), glow=7)
     SCARED = f(DEF, sl=(0, 35, 0), sr=(0, -35, 0), jaw=(18, 0, 0), glow=13)
     ASLEEP = lambda ph: f(DEF, head=(18, 0, 10), jaw=(8 + 1.5 * math.sin(ph), 0, 0),
-                          sl=(0, 7 + 2 * (0.5 - 0.5 * math.cos(ph)), 0), sr=(0, -7 - 2 * (0.5 - 0.5 * math.cos(ph)), 0),
+                          sl=CROSS_SL, el=CROSS_EL, sr=CROSS_SR, er=CROSS_ER,
                           glow=0.2 + 1.0 * (0.5 - 0.5 * math.cos(ph)))
     IDLE = lambda ph: f(DEF, torso=1.0 * (0.5 - 0.5 * math.cos(ph)), head=(2 * (0.5 - 0.5 * math.cos(ph)), 0, 0),
                         sl=(0, 8 + 2 * (0.5 - 0.5 * math.cos(ph)), 0), sr=(0, -8 - 2 * (0.5 - 0.5 * math.cos(ph)), 0))
