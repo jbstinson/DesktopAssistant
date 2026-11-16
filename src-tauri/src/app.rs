@@ -100,6 +100,9 @@ pub struct Opened {
 
 pub struct Core {
     sessions: Sessions,
+    /// The latest session clock seen (seconds), from events and ticks. It decides when an idle
+    /// character falls asleep.
+    clock: u64,
     pending: Pending,
     visible: bool,
     approve_in_window: bool,
@@ -145,6 +148,7 @@ impl Core {
     pub fn new(rules: RuleSet, rules_warning: Option<String>) -> Core {
         Core {
             sessions: Sessions::new(),
+            clock: 0,
             pending: Pending::new(HOLD_DEFAULT_SECS),
             visible: true,
             approve_in_window: true,
@@ -167,6 +171,7 @@ impl Core {
         let e = e.normalized();
         // SessionEnd removes the session, so its project is read before the event is applied.
         let before = self.sessions.project_of(&e.session_id);
+        self.clock = self.clock.max(now);
         let applied = self.sessions.apply(&e, now);
         let project = self.sessions.project_of(&e.session_id).or(before).unwrap_or_default();
         let alert = self.rules.evaluate(&e, &applied, &project);
@@ -341,11 +346,13 @@ impl Core {
     }
 
     /// Expire stale sessions: 30 minutes of silence, or 24 hours for ones waiting on the
-    /// user (needs-you, error). Returns whether anything changed.
+    /// user (needs-you, error). Also lets an idle character fall asleep once it has been quiet
+    /// long enough. Returns whether anything changed.
     pub fn tick(&mut self, now: u64) -> bool {
-        let before = self.sessions.list().len();
+        let before = (self.sessions.list().len(), self.sessions.character_state(self.clock));
+        self.clock = self.clock.max(now);
         self.sessions.expire(now);
-        self.sessions.list().len() != before
+        (self.sessions.list().len(), self.sessions.character_state(self.clock)) != before
     }
 
     /// Where the session `id` lives, or None if it is gone.
@@ -411,7 +418,7 @@ impl Core {
                 .collect();
         let request = self.request_view(&sessions, now_ms);
         Snapshot {
-            state: self.sessions.character_state().to_string(),
+            state: self.sessions.character_state(self.clock).to_string(),
             waiting: sessions.iter().filter(|s| s.state == "needs-you").count(),
             sessions,
             warning: (!warnings.is_empty()).then(|| warnings.join("; ")),
@@ -651,6 +658,19 @@ mod tests {
         assert!(core.tick(100 + 1800));
         assert_eq!(core.snapshot(0).state, "asleep");
         assert!(!core.tick(100 + 1801));
+    }
+
+    #[test]
+    fn tick_puts_an_idle_character_to_sleep_after_ten_quiet_minutes() {
+        let mut core = Core::new(defaults(), None);
+        core.handle(ev("UserPromptSubmit", "a", None), 1);
+        core.handle(ev("Stop", "a", None), 5);
+        assert_eq!(core.snapshot(0).state, "idle");
+        assert!(!core.tick(5 + crate::sessions::AWAKE_IDLE_SECONDS - 1));
+        assert_eq!(core.snapshot(0).state, "idle");
+        assert!(core.tick(5 + crate::sessions::AWAKE_IDLE_SECONDS));
+        assert_eq!(core.snapshot(0).state, "asleep");
+        assert!(!core.tick(5 + crate::sessions::AWAKE_IDLE_SECONDS + 30));
     }
 
     #[test]

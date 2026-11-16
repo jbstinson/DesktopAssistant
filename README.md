@@ -6,7 +6,8 @@ It never types anything in a session. A permission request is answered only by a
 
 ## What it does
 
-- Shows a character (a robot by default, or a dog, cat, paperclip, skeleton or 3D skeleton) that reacts to what your sessions are doing: asleep, reading, typing, thinking, needs-you, done, error.
+- Shows a character (a robot by default, or a dog, cat, paperclip, skeleton or 3D skeleton) that reacts to what your sessions are doing: idle, asleep, reading, typing, thinking, needs-you, done, error.
+- Stays awake (idle) between turns while a session waits for your next prompt. After 10 quiet minutes, or with no sessions at all, it falls asleep.
 - Plays a short sound and speaks a short alert (built-in Windows voice) when a session needs you or finishes a long turn.
 - Click the character to open a panel that lists each session: project, source, state and time in that state. Click a session to jump to it. The small x dismisses it.
 - Never takes focus. Empty areas of its window let clicks through. Drag the character to move it, including to another monitor. It remembers where you left it.
@@ -62,11 +63,12 @@ Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robo
 
 ## 3D avatars
 
-**Skeleton 3D** is drawn differently from the other avatars. Its art is modelled and rendered in Blender ahead of time (`art/skeleton3d/build.py`), and the app plays the rendered frames like a flipbook. That gives it real lighting, a moving jaw, flickering eyes, a 3D head turn and a page that turns, plus short transitions into each state and an occasional fidget while idle.
+**Skeleton 3D** is drawn differently from the other avatars. Its art is modelled and rendered in Blender ahead of time (`art/skeleton3d/build.py`), and the app plays the rendered frames like a flipbook. That gives it real lighting, a moving jaw, flickering eyes, a 3D head turn and a page that turns, plus short transitions into each state and an occasional fidget (every 8 to 20 seconds) while it is idle between turns.
 
 What this costs on your system:
 
-- **GPU: about twice the other avatars while it animates.** It shows more frames per second than the flat avatars (typing steps about 13 times a second instead of about 7). Measured on the owner's PC: about 0.65% GPU while typing or waving, against about 0.3% for the robot. Asleep it uses about 0.1% instead of 0%, because its eyes pulse slowly while it sleeps.
+- **GPU: about twice the other avatars while it animates.** It shows more frames per second than the flat avatars (typing steps about 13 times a second instead of about 7). Measured on the owner's PC: about 0.85% GPU while typing and 0.65% while waving, against about 0.4% and 0.3% for the robot.
+- **Between turns it keeps moving.** Idle it uses about 0.3% (a slow idle loop and the fidgets), where the robot stands still at 0% and the dog and cat use about 0.1% for their tails. Asleep it uses about 0.1% instead of 0%, because its eyes pulse slowly while it sleeps.
 - **CPU and memory: no real change.** CPU stays at about 0% and memory stays about 160 MB private (most of that is WebView2, which every avatar uses).
 - **Disk: about 1.4 MB** of image strips, built into the app.
 
@@ -336,7 +338,13 @@ Measured with `scripts\measure.ps1 -Avatar <id>` (asleep and waving) and a copy 
 | State | Skeleton 3D GPU | Robot GPU | CPU | Private memory |
 |---|---|---|---|---|
 | Asleep | 0.11% average (0.21% peak) | 0.00% | 0.00% | 156-162 MB |
+| Idle | 0.28% average (0.52% peak) | 0.00% (dog 0.10%, cat 0.12%) | 0.00-0.01% | 152-161 MB |
 | Waving | 0.64% average (0.92% peak) | 0.31% average (0.70% peak) | 0.00-0.01% | about 160 MB |
-| Typing | 0.67-0.68% average (about 0.9% peak) | 0.31% average (0.57% peak) | 0.00-0.01% | about 165 MB |
+| Typing | 0.85% average (1.34% peak) | 0.40% average (0.51% peak) | 0.00% | 155-158 MB |
 
-Two robot typing runs were discarded: one caught a leftover process (14 processes, double memory) and one ran before the app had started (0 processes). The robot was re-run until it gave a normal 7-process reading.
+Correction: the first typing figures recorded here (0.67% and 0.31%) were a second waving measurement, because the copied script still sent a permission request. Typing was re-measured with an Edit tool event, and idle with a SessionStart event, once the idle state existed. All runs gave a normal 7-process reading.
+
+## Verification results (Idle between turns)
+
+- A session waiting for your next prompt shows the character idle; once every such session has been quiet for 10 minutes, or there are none, it shows asleep. The 30-second tick publishes the change without needing a new event (unit tests in `sessions.rs` and `app.rs`).
+- Idle makes the flat avatars stand awake between turns instead of sleeping, so the dog's and cat's idle tail animations now play (about 0.1% GPU), and Skeleton 3D plays its idle loop and fidgets (about 0.3%). The robot stays still at 0%.
