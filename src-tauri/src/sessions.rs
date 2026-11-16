@@ -10,6 +10,10 @@ const EXPIRE_SECONDS: u64 = 1800;
 /// for hours with no hook in between), stay until handled, so they get a day.
 const EXPIRE_BLOCKED_SECONDS: u64 = 86400;
 
+/// A session waiting for your next prompt keeps the character awake (idle) for this long after it
+/// went quiet. With nothing else going on after that, or no sessions at all, the character sleeps.
+pub const AWAKE_IDLE_SECONDS: u64 = 600;
+
 /// A turn must last at least this many seconds before Stop shows Done; shorter turns go Idle.
 pub const DONE_MIN_SECONDS: u64 = 60;
 
@@ -197,8 +201,9 @@ impl Sessions {
         });
     }
 
-    /// Highest-priority state across sessions. Idle sessions do not count as active.
-    pub fn character_state(&self) -> &'static str {
+    /// Highest-priority state across sessions at time `now`. With nothing active, a session that
+    /// went idle under AWAKE_IDLE_SECONDS ago shows "idle" (awake); otherwise the character sleeps.
+    pub fn character_state(&self, now: u64) -> &'static str {
         let has = |a: Activity| self.map.values().any(|s| s.activity == a);
         if has(Activity::NeedsYou) {
             "needs-you"
@@ -212,6 +217,12 @@ impl Sessions {
             "thinking"
         } else if has(Activity::Done) {
             "done"
+        } else if self
+            .map
+            .values()
+            .any(|s| s.activity == Activity::Idle && now.saturating_sub(s.since) < AWAKE_IDLE_SECONDS)
+        {
+            "idle"
         } else {
             "asleep"
         }
@@ -324,11 +335,30 @@ mod tests {
     }
 
     #[test]
-    fn only_idle_sessions_stay_asleep() {
+    fn a_session_waiting_for_your_prompt_is_idle_until_ten_quiet_minutes() {
         let mut s = Sessions::new();
         s.apply(&ev("UserPromptSubmit", "a", None), 1);
         s.apply(&ev("Stop", "a", None), 5);
-        assert_eq!(s.character_state(), "asleep");
+        assert_eq!(s.character_state(5), "idle");
+        assert_eq!(s.character_state(5 + AWAKE_IDLE_SECONDS - 1), "idle");
+        assert_eq!(s.character_state(5 + AWAKE_IDLE_SECONDS), "asleep");
+    }
+
+    #[test]
+    fn a_new_session_is_awake_and_no_sessions_is_asleep() {
+        let mut s = Sessions::new();
+        assert_eq!(s.character_state(10), "asleep");
+        s.apply(&ev("SessionStart", "a", None), 10);
+        assert_eq!(s.character_state(10), "idle");
+    }
+
+    #[test]
+    fn any_recent_idle_session_keeps_the_character_awake() {
+        let mut s = Sessions::new();
+        s.apply(&ev("Stop", "old", None), 0);
+        s.apply(&ev("Stop", "new", None), 500);
+        assert_eq!(s.character_state(AWAKE_IDLE_SECONDS + 100), "idle");
+        assert_eq!(s.character_state(500 + AWAKE_IDLE_SECONDS), "asleep");
     }
 
     #[test]
@@ -481,22 +511,22 @@ mod tests {
     #[test]
     fn character_state_priority() {
         let mut s = Sessions::new();
-        assert_eq!(s.character_state(), "asleep");
+        assert_eq!(s.character_state(1), "asleep");
         s.apply(&ev("UserPromptSubmit", "d", None), 0);
         s.apply(&ev("Stop", "d", None), 100);
-        assert_eq!(s.character_state(), "done");
+        assert_eq!(s.character_state(1), "done");
         s.apply(&ev("UserPromptSubmit", "t", None), 1);
-        assert_eq!(s.character_state(), "thinking");
+        assert_eq!(s.character_state(1), "thinking");
         s.apply(&ev("PreToolUse", "r", Some("Read")), 1);
-        assert_eq!(s.character_state(), "reading");
+        assert_eq!(s.character_state(1), "reading");
         s.apply(&ev("PreToolUse", "w", Some("Bash")), 1);
-        assert_eq!(s.character_state(), "typing");
+        assert_eq!(s.character_state(1), "typing");
         s.apply(&ev("StopFailure", "e", None), 1);
-        assert_eq!(s.character_state(), "error");
+        assert_eq!(s.character_state(1), "error");
         s.apply(&ev("PermissionRequest", "n", None), 1);
-        assert_eq!(s.character_state(), "needs-you");
+        assert_eq!(s.character_state(1), "needs-you");
         s.dismiss("n");
-        assert_eq!(s.character_state(), "error");
+        assert_eq!(s.character_state(1), "error");
     }
 
     #[test]
