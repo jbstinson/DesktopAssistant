@@ -110,6 +110,8 @@ pub struct Core {
     rules_warning: Option<String>,
     connection_warning: Option<String>,
     hotkey_warning: Option<String>,
+    /// Set when started inside another app's MSIX container (see sandbox.rs).
+    sandbox_warning: Option<String>,
     quiet: bool,
     hooks_on: bool,
     hooks_stale: bool,
@@ -158,6 +160,7 @@ impl Core {
             rules_warning,
             connection_warning: None,
             hotkey_warning: None,
+            sandbox_warning: None,
             quiet: false,
             hooks_on: false,
             hooks_stale: false,
@@ -284,6 +287,10 @@ impl Core {
 
     pub fn set_hotkey_warning(&mut self, warning: Option<String>) {
         self.hotkey_warning = warning;
+    }
+
+    pub fn set_sandbox_warning(&mut self, warning: Option<String>) {
+        self.sandbox_warning = warning;
     }
 
     pub fn set_avatar(&mut self, id: &'static str) {
@@ -422,12 +429,17 @@ impl Core {
             })
             .collect();
         let stale = self.hooks_stale.then(|| HOOKS_STALE_WARNING.to_string());
-        let warnings: Vec<&str> =
-            [&self.rules_warning, &self.connection_warning, &self.hotkey_warning, &stale]
-                .into_iter()
-                .flatten()
-                .map(String::as_str)
-                .collect();
+        let warnings: Vec<&str> = [
+            &self.sandbox_warning,
+            &self.rules_warning,
+            &self.connection_warning,
+            &self.hotkey_warning,
+            &stale,
+        ]
+        .into_iter()
+        .flatten()
+        .map(String::as_str)
+        .collect();
         let request = self.request_view(&sessions, now_ms);
         Snapshot {
             state: self.sessions.character_state(self.clock).to_string(),
@@ -1082,6 +1094,15 @@ when = { event = \"SessionEnd\", project = \"proj\" }
         core.open_permission(with_rule("a"), 0 / 1000, 0);
         let text = format!("{:?}", core.snapshot(0));
         assert!(!text.contains("node") && !text.contains("Show version"), "{text}");
+    }
+
+    #[test]
+    fn sandbox_warning_comes_first_and_clears() {
+        let mut core = Core::new(defaults(), Some("rules bad".into()));
+        core.set_sandbox_warning(Some("sandboxed".into()));
+        assert_eq!(core.snapshot(0).warning.as_deref(), Some("sandboxed; rules bad"));
+        core.set_sandbox_warning(None);
+        assert_eq!(core.snapshot(0).warning.as_deref(), Some("rules bad"));
     }
 
     #[test]

@@ -198,6 +198,7 @@ The buttons are locked for 1 second after a request appears, so a click meant fo
 - After the app restarts, a session already sitting at a prompt is invisible until its next event, and a turn already running gets no bell when it ends.
 - With several Windows Terminal windows open, jump can raise the wrong one.
 - Only one copy runs per Windows account and data folder; starting a second does nothing and exits.
+- Don't start the app from inside a Store (MSIX) app, such as a Claude desktop app session. It inherits that app's private copy of `%APPDATA%`, so only sessions in that same app can reach it; VS Code and terminal sessions silently go missing. The character shows a warning when this happens: quit it and start it from the Start menu or Explorer.
 - If you move the app folder, the hook entries point at the old place. The character shows a warning; choose **Connect to Claude Code** in the tray to repair them. The same warning shows after updating to a version that listens for more events, until you connect again.
 - `rules.toml` is written only on first run, so one made by an older version has no rule for `PermissionDenied` and stays silent when auto mode refuses a command. To hear about it, add:
 
