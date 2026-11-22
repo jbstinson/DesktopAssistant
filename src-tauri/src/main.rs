@@ -20,6 +20,7 @@ mod sandbox;
 mod sessions;
 mod single;
 mod tray;
+mod updater;
 mod updates;
 mod voice;
 mod installer;
@@ -273,6 +274,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![set_panel, dismiss_session, jump_to, get_snapshot, answer_permission, cursor_in_window])
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
             let scale = window.scale_factor()?;
@@ -426,6 +428,8 @@ fn main() {
                 avatar_menu,
                 jump_menu,
             )?;
+            // Checks for updates only if the user ticked Check automatically and one is due.
+            updater::start_auto(app.handle());
 
             // Ctrl+Alt+D shows or hides the character. If another app owns the key, say so
             // in the warning and carry on.
