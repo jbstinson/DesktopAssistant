@@ -2,6 +2,7 @@
 
 mod app;
 mod avatar;
+mod cli;
 mod approvals;
 mod delivery;
 mod events;
@@ -255,6 +256,14 @@ fn schedule_position_save(handle: tauri::AppHandle) {
 }
 
 fn main() {
+    // The uninstaller runs `--disconnect`: remove our hook entries and exit, without a window or
+    // the single-instance lock, so it works while the character is running.
+    if cli::wants_disconnect(std::env::args()) {
+        if let Err(e) = cli::disconnect(tray::claude_settings_path().as_deref()) {
+            eprintln!("disconnect failed: {e}");
+        }
+        return;
+    }
     // A second launch would overwrite endpoint.json and leave the first app deaf, so it exits
     // here, before any window or listener exists. The guard lives for the whole run.
     let Some(_instance) = single::acquire(&single::mutex_name(&paths::data_dir())) else {
