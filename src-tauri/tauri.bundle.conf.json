@@ -1,6 +1,7 @@
 {
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis"],
     "publisher": "DesktopAssistant contributors",
     "copyright": "DesktopAssistant contributors",

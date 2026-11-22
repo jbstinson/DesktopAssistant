@@ -19,7 +19,7 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, Wry};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    MessageBoxW, ShowWindow, IDYES, MB_DEFBUTTON2, MB_ICONERROR, MB_ICONQUESTION, MB_OK,
+    MessageBoxW, ShowWindow, IDYES, MB_DEFBUTTON2, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONQUESTION, MB_OK,
     MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, SW_HIDE, SW_SHOWNOACTIVATE,
 };
 
@@ -101,6 +101,7 @@ pub struct TrayItems {
     quiet: CheckMenuItem<Wry>,
     approve: CheckMenuItem<Wry>,
     vscode: CheckMenuItem<Wry>,
+    updates_auto: CheckMenuItem<Wry>,
     hooks: CheckMenuItem<Wry>,
     voices: Vec<(String, CheckMenuItem<Wry>)>,
     /// One per avatar, in avatar::AVATARS order.
@@ -150,12 +151,17 @@ fn message_box(text: &str, flags: u32) -> i32 {
 }
 
 /// A native yes/no question. The default button is No.
-fn ask(text: &str) -> bool {
+pub fn ask(text: &str) -> bool {
     message_box(text, MB_YESNO | MB_DEFBUTTON2 | MB_ICONQUESTION) == IDYES
 }
 
-fn show_error(text: &str) {
+pub fn show_error(text: &str) {
     message_box(text, MB_OK | MB_ICONERROR);
+}
+
+/// A native notice with an OK button.
+pub fn info(text: &str) {
+    message_box(text, MB_OK | MB_ICONINFORMATION);
 }
 
 fn show_window(window: &tauri::WebviewWindow, cmd: i32) {
@@ -418,14 +424,17 @@ pub fn install(
         items
     };
     let holidays_submenu = Submenu::with_items(app, "Holidays", true, &[&holidays, &months_submenu])?;
+    let updates_now = MenuItem::with_id(app, "updates", "Check for updates", true, None::<&str>)?;
+    let auto_on = crate::updates::load(&crate::updater::settings_path()).auto;
+    let updates_auto = CheckMenuItem::with_id(app, "updates-auto", "Check automatically", true, auto_on, None::<&str>)?;
     let rules = MenuItem::with_id(app, "rules", "Open rules file", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
         app,
-        &[&toggle, &quiet, &approve, &vscode, &voice_submenu, &avatar_submenu, &holidays_submenu, &hooks, &rules, &sep, &quit_item],
+        &[&toggle, &quiet, &approve, &vscode, &voice_submenu, &avatar_submenu, &holidays_submenu, &hooks, &updates_now, &updates_auto, &rules, &sep, &quit_item],
     )?;
-    app.manage(TrayItems { toggle, quiet, approve, vscode, hooks, voices, avatars, holidays, hats });
+    app.manage(TrayItems { toggle, quiet, approve, vscode, updates_auto, hooks, voices, avatars, holidays, hats });
 
     let mut builder = TrayIconBuilder::new().tooltip("DesktopAssistant").menu(&menu);
     if let Some(icon) = app.default_window_icon() {
@@ -449,6 +458,11 @@ pub fn install(
                 });
             }
             "holidays" => toggle_holidays(&app.state::<TrayItems>(), &core, &publish, &hat_menu),
+            "updates" => crate::updater::check(app, true),
+            "updates-auto" => {
+                let on = crate::updater::toggle_auto(app);
+                let _ = app.state::<TrayItems>().updates_auto.set_checked(on);
+            }
             "rules" => open_rules(),
             "quit" => quit(app),
             id => {
