@@ -32,7 +32,7 @@ Uninstalling must never leave Claude Code pointing at a deleted hook program.
 
 ## Design
 
-1. **Bundling.** Turn on bundling with the NSIS target only, installing per user (`installMode: currentUser`, so under `%LOCALAPPDATA%\Programs\DesktopAssistant`). Ship `da-hook.exe` with the app as a bundled extra program, so it ends up beside `desktop-assistant.exe` under that exact name.
+1. **Bundling.** Turn on bundling with the NSIS target only, installing per user (`installMode: currentUser`, so under `%LOCALAPPDATA%\DesktopAssistant`). Ship `da-hook.exe` with the app as a bundled extra program, so it ends up beside `desktop-assistant.exe` under that exact name.
 2. **Version.** Start at `0.1.0` in `tauri.conf.json` and both `Cargo.toml` files. The release workflow refuses to build if the tag doesn't match.
 3. **`desktop-assistant.exe --disconnect`.** A command-line mode that removes only our hook entries, using the same code and backup as unticking Connect, then exits. It shows no window and doesn't take the single-instance lock, so it works while the app is running. It does nothing if our entries aren't there or the settings file is missing, and it always exits 0, so the uninstall carries on whatever happens.
 4. **Uninstall step.** A pre-uninstall step closes a running app, then runs `--disconnect`, then lets the normal uninstall remove the files. User data in `%APPDATA%\DesktopAssistant` (rules, avatar and other choices) is left behind, as uninstallers usually do. The README says where it is.

@@ -15,7 +15,7 @@ It never types anything in a session. A permission request is answered only by a
 
 ## Install
 
-1. Download `DesktopAssistant_<version>_x64-setup.exe` from the repo's [Releases](https://github.com/jbstinson/DesktopAssistant/releases) page and run it. It installs for your Windows account only (under `%LOCALAPPDATA%\Programs\DesktopAssistant`), with no admin prompt. Installing a newer version over an older one upgrades it in place.
+1. Download `DesktopAssistant_<version>_x64-setup.exe` from the repo's [Releases](https://github.com/jbstinson/DesktopAssistant/releases) page and run it. It installs for your Windows account only (under `%LOCALAPPDATA%\DesktopAssistant`), with no admin prompt. Installing a newer version over an older one upgrades it in place.
 2. The installer is not code-signed, so Windows SmartScreen may say "Windows protected your PC". Click **More info**, then **Run anyway**.
 3. Follow [First run](#first-run) below.
 
