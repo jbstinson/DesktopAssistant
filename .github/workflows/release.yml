@@ -1,0 +1,76 @@
+# Builds the Windows installer when a version tag (v1.2.3) is pushed, and attaches it to a draft
+# GitHub Release. Nothing is public until the draft is published by hand.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag must match the app version
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($tag -ne "v$version") {
+            Write-Error "Tag $tag does not match the app version $version in src-tauri/tauri.conf.json (expected v$version)."
+            exit 1
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the Tauri CLI
+        run: npm ci
+
+      - name: UI tests
+        run: node --test scripts/*.test.mjs
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Rust tests
+        run: cargo test --workspace --locked
+
+      - name: Build the installer
+        id: build
+        shell: pwsh
+        run: |
+          $setup = ./scripts/build-installer.ps1 | Select-Object -Last 1
+          if (-not (Test-Path $setup)) { Write-Error "No installer at '$setup'"; exit 1 }
+          "setup=$setup" >> $env:GITHUB_OUTPUT
+
+      - name: Draft the GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $name = Split-Path -Leaf '${{ steps.build.outputs.setup }}'
+          @"
+          ## Install
+
+          1. Download **$name** below and run it. It installs for your Windows account only, with no admin prompt.
+          2. The installer is not code-signed, so Windows SmartScreen may say "Windows protected your PC". Click **More info**, then **Run anyway**.
+          3. Right-click the character's tray icon and tick **Connect to Claude Code**.
+
+          ## Uninstall
+
+          Use Windows **Settings > Apps > Installed apps > DesktopAssistant > Uninstall**. It disconnects from Claude Code first, so no hook is left pointing at a removed program. Your choices stay in ``%APPDATA%\DesktopAssistant``; delete that folder too if you want them gone.
+          "@ | Set-Content release-notes.md
+          gh release create $tag '${{ steps.build.outputs.setup }}' --draft --title "DesktopAssistant $($tag.TrimStart('v'))" --notes-file release-notes.md

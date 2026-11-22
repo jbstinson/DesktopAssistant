@@ -1,0 +1,16 @@
+{
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "DesktopAssistant contributors",
+    "copyright": "DesktopAssistant contributors",
+    "shortDescription": "A desktop character that watches your Claude Code sessions",
+    "resources": { "../target/release/da-hook.exe": "da-hook.exe" },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    }
+  }
+}

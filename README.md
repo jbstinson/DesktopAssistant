@@ -13,9 +13,17 @@ It never types anything in a session. A permission request is answered only by a
 - Jump brings forward the window the session lives in: its terminal or the Claude desktop app. With **Jump to VS Code window** ticked in the tray, sessions in the Claude Code extension and in VS Code's built-in terminal jump to the VS Code window whose title shows the session's project folder.
 - Never takes focus. Empty areas of its window let clicks through. Drag the character to move it, including to another monitor. It remembers where you left it.
 
+## Install
+
+1. Download `DesktopAssistant_<version>_x64-setup.exe` from the repo's [Releases](https://github.com/jbstinson/DesktopAssistant/releases) page and run it. It installs for your Windows account only (under `%LOCALAPPDATA%\Programs\DesktopAssistant`), with no admin prompt. Installing a newer version over an older one upgrades it in place.
+2. The installer is not code-signed, so Windows SmartScreen may say "Windows protected your PC". Click **More info**, then **Run anyway**.
+3. Follow [First run](#first-run) below.
+
+To uninstall, use Windows **Settings > Apps > Installed apps > DesktopAssistant > Uninstall**. It closes the character, then disconnects from Claude Code (the same as unticking **Connect to Claude Code**, so only our hook entries go), then removes the program. Your choices and rules stay in `%APPDATA%\DesktopAssistant`; delete that folder too if you want them gone.
+
 ## Build
 
-Needs Rust, Node and the Tauri prerequisites.
+To build from source instead, you need Rust, Node and the Tauri prerequisites.
 
 ```
 npm install
@@ -34,9 +42,18 @@ cargo test --workspace
 
 GitHub runs both on every pull request and every push to `main` (`.github/workflows/ci.yml`, on Windows). A few tests need a real desktop (the Windows speech engine, the system clock) and are skipped there and in a plain `cargo test`.
 
+To build the installer locally, run `scriptsuild-installer.ps1`. It builds `da-hook.exe`, then the app and its per-user NSIS setup, using the installer settings in `src-tauri	auri.bundle.conf.json` (normal builds don't use them), and prints the setup's path under `targeteleaseundle
+sis\`. `desktop-assistant.exe --disconnect` removes our hook entries and exits; the uninstaller runs it.
+
+### Making a release
+
+1. Set the new version in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `hook/Cargo.toml` and `package.json`, run `cargo build` and `npm install` so the lock files follow, and merge that to `main`.
+2. Tag the merged commit and push the tag, for example `git tag v0.2.0` then `git push origin v0.2.0`.
+3. `.github/workflows/release.yml` checks that the tag matches the version, runs the tests, builds the installer and creates a **draft** Release with the setup attached. Review the draft on GitHub and click **Publish**.
+
 ## First run
 
-1. Start `desktop-assistant.exe`. The character appears at the bottom right of the main monitor, asleep.
+1. Start DesktopAssistant from the Start menu (or `desktop-assistant.exe` if you built it). Start it yourself, not by asking a Claude desktop app session to launch it (see Known limits). The character appears at the bottom right of the main monitor, asleep.
 2. Right-click the tray icon and choose **Connect to Claude Code**. It asks first, makes a backup, then adds hook entries for nine events to `%USERPROFILE%\.claude\settings.json`. Your own hooks are kept.
 3. Start a Claude Code session. The character wakes up.
 
