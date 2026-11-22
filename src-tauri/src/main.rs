@@ -157,8 +157,9 @@ fn jump_to(id: String, core: State<'_, SharedCore>) -> Result<(), String> {
         return Ok(());
     }
     // The core lock is released above; the Windows calls can take a moment.
+    let shown = format!("{target:?}");
     let outcome = jump::focus(target)?;
-    eprintln!("jump to {target:?}: {outcome:?}");
+    eprintln!("jump to {shown}: {outcome:?}");
     Ok(())
 }
 
@@ -217,6 +218,10 @@ fn state_path() -> std::path::PathBuf {
 
 fn avatar_path() -> std::path::PathBuf {
     paths::data_dir().join("avatar.txt")
+}
+
+fn vscode_jump_path() -> std::path::PathBuf {
+    paths::data_dir().join("vscode-jump.txt")
 }
 
 fn hats_path() -> std::path::PathBuf {
@@ -301,6 +306,7 @@ fn main() {
                 c.set_holidays_enabled(holidays.enabled);
                 c.set_month(hats::local_month());
                 c.set_avatar(avatar::load(&avatar_path()));
+                c.set_vscode_jump(jump::load_vscode_option(&vscode_jump_path()));
             }
             app.manage(core.clone());
 
@@ -394,7 +400,19 @@ fn main() {
             let approve_menu = tray::ApproveMenu { approvals, path: approvals_path };
             let hat_menu = tray::HatMenu { path: hats_path() };
             let avatar_menu = tray::AvatarMenu { path: avatar_path() };
-            tray::install(app.handle(), core.clone(), publish.clone(), queue, hooks_on, voice_menu, approve_menu, hat_menu, avatar_menu)?;
+            let jump_menu = tray::JumpMenu { path: vscode_jump_path() };
+            tray::install(
+                app.handle(),
+                core.clone(),
+                publish.clone(),
+                queue,
+                hooks_on,
+                voice_menu,
+                approve_menu,
+                hat_menu,
+                avatar_menu,
+                jump_menu,
+            )?;
 
             // Ctrl+Alt+D shows or hides the character. If another app owns the key, say so
             // in the warning and carry on.

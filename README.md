@@ -10,6 +10,7 @@ It never types anything in a session. A permission request is answered only by a
 - Stays awake (idle) between turns while a session waits for your next prompt. After 10 quiet minutes, or with no sessions at all, it falls asleep.
 - Plays a short sound and speaks a short alert (built-in Windows voice) when a session needs you or finishes a long turn.
 - Click the character to open a panel that lists each session: project, source, state and time in that state. Click a session to jump to it. The small x dismisses it.
+- Jump brings forward the window the session lives in: its terminal or the Claude desktop app. With **Jump to VS Code window** ticked in the tray, sessions in the Claude Code extension and in VS Code's built-in terminal jump to the VS Code window whose title shows the session's project folder.
 - Never takes focus. Empty areas of its window let clicks through. Drag the character to move it, including to another monitor. It remembers where you left it.
 
 ## Build
@@ -46,6 +47,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 - **Hide / Show**: hides or shows the character.
 - **Do not disturb**: mutes sound and speech. The character still animates.
 - **Approve in window**: ticked by default. When on, permission requests can be answered in the panel (see Approvals). Turning it off hands every held request back to Claude Code at once. Your choice is remembered.
+- **Jump to VS Code window**: off by default. When ticked, clicking a session that runs in VS Code (the Claude Code extension or VS Code's built-in terminal) brings forward the VS Code window whose title shows that session's project folder. With only one VS Code window open, that window is used. With several open and none showing the folder, nothing is brought forward rather than the wrong one. When off, extension sessions cannot be clicked, and a session in VS Code's terminal brings forward whichever VS Code window comes first. Your choice is remembered in `vscode-jump.txt`.
 - **Voice**: lists the Windows voices installed on this PC. Picking one speaks a short sample and remembers your choice in `%APPDATA%\DesktopAssistant\voice.txt`. The sample is muted during Do not disturb. If a saved voice is uninstalled, the Windows default is used.
 - **Avatar**: picks the character: Robot (the default), Dog, Cat, Paperclip, Skeleton or Skeleton 3D. The change shows at once and is remembered. Skeleton 3D uses a little more GPU (see 3D avatars).
 - **Holidays**: **Enabled** turns every holiday hat on or off at once. **Months** has one tick per month; a ticked month's hat appears on the character for that whole month (see Hats). Your choices are remembered.
@@ -59,7 +61,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 
 ## Where files live
 
-Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time), `avatar.txt` (the chosen avatar), `hats.json` (the Holidays switch and months whose hat is off) and `endpoint.json` (the local port and token that `da-hook` uses).
+Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time), `avatar.txt` (the chosen avatar), `hats.json` (the Holidays switch and months whose hat is off), `vscode-jump.txt` (the Jump to VS Code window option) and `endpoint.json` (the local port and token that `da-hook` uses).
 
 ## 3D avatars
 
@@ -207,6 +209,7 @@ The buttons are locked for 1 second after a request appears, so a click meant fo
 - A Stop cannot tell a finished task from a question asked in plain text. Both look like "done".
 - For desktop app sessions, jump brings the Claude app forward, not the specific session.
 - For Windows Terminal, jump raises the window, not the tab.
+- For VS Code (with **Jump to VS Code window** ticked), jump raises the window, not the Claude Code panel or terminal tab inside it. It finds the window by the folder name in its title, so it misses if you changed VS Code's `window.title` setting to leave the folder out, or opened the session from a subfolder of the open folder. Two VS Code windows on folders with the same name are told apart only by order (the most recently used wins).
 - A waiting session that crashed stays in the list for up to 24 hours unless you dismiss it.
 - A dismissed session comes back on its next event.
 - With the app closed, each hook call spends about 0.2 seconds before giving up (see results).
