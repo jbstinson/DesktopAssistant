@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn reply_is_the_only_behavior_builder() {
-        let files: [(&str, &str); 23] = [
+        let files: [(&str, &str); 24] = [
             ("app.rs", include_str!("app.rs")),
             ("approvals.rs", include_str!("approvals.rs")),
             ("delivery.rs", include_str!("delivery.rs")),
@@ -298,6 +298,7 @@ mod tests {
             ("sessions.rs", include_str!("sessions.rs")),
             ("single.rs", include_str!("single.rs")),
             ("tray.rs", include_str!("tray.rs")),
+            ("updates.rs", include_str!("updates.rs")),
             ("voice.rs", include_str!("voice.rs")),
             ("default_rules.toml", include_str!("default_rules.toml")),
         ];

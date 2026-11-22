@@ -20,6 +20,7 @@ mod sandbox;
 mod sessions;
 mod single;
 mod tray;
+mod updates;
 mod voice;
 mod installer;
 
