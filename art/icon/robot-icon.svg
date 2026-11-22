@@ -1,0 +1,11 @@
+<!-- The app icon: the robot's face, simplified to read at 16x16 in the tray.
+     Rendered into src-tauri/icons/icon.ico with: npx tauri icon art/icon/robot-icon.svg -o <dir>
+     (then copy only icon.ico). Colours match the robot avatar (ui/avatars/robot.js). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 64 64">
+  <rect x="29" y="2" width="6" height="12" rx="3" fill="#0f766e"/>
+  <circle cx="32" cy="6" r="6" fill="#f59e0b"/>
+  <rect x="2" y="14" width="60" height="48" rx="18" fill="#2dd4bf"/>
+  <rect x="9" y="22" width="46" height="32" rx="12" fill="#0f172a"/>
+  <circle cx="22" cy="38" r="8" fill="#67e8f9"/>
+  <circle cx="42" cy="38" r="8" fill="#67e8f9"/>
+</svg>
