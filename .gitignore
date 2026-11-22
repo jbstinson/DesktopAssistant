@@ -5,3 +5,6 @@ spikes/window/spike.log
 .superpowers/
 .claude/settings.local.json
 src-tauri/gen/
+
+# Update signing keys must never be committed
+*.key
