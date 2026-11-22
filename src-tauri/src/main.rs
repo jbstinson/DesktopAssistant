@@ -15,6 +15,7 @@ mod permission;
 mod position;
 mod rules;
 mod rules_watch;
+mod sandbox;
 mod sessions;
 mod single;
 mod tray;
@@ -377,6 +378,8 @@ fn main() {
                 }),
             };
             let started = listener::start(routes);
+            // After endpoint.json is written, so a redirected copy of it can be spotted.
+            lock(&core).set_sandbox_warning(sandbox::current_warning(started.as_ref().ok().map(|ep| ep.port)));
             match started {
                 Ok(ep) => eprintln!("listening on 127.0.0.1:{}", ep.port),
                 Err(e) => {
