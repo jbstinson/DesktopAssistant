@@ -100,6 +100,7 @@ pub struct TrayItems {
     toggle: MenuItem<Wry>,
     quiet: CheckMenuItem<Wry>,
     approve: CheckMenuItem<Wry>,
+    vscode: CheckMenuItem<Wry>,
     hooks: CheckMenuItem<Wry>,
     voices: Vec<(String, CheckMenuItem<Wry>)>,
     /// One per avatar, in avatar::AVATARS order.
@@ -112,6 +113,11 @@ pub struct TrayItems {
 
 /// Where the Avatar choice is kept.
 pub struct AvatarMenu {
+    pub path: PathBuf,
+}
+
+/// Where the "Jump to VS Code window" option is kept.
+pub struct JumpMenu {
     pub path: PathBuf,
 }
 
@@ -219,6 +225,21 @@ fn toggle_approve(items: &TrayItems, core: &Core, publish: &Publish, menu: &Appr
     let _ = items.approve.set_checked(on);
     if let Err(e) = approvals::save(&menu.path, Approvals { enabled: on, ..menu.approvals }) {
         eprintln!("approvals: cannot save choice: {e}");
+    }
+    publish();
+}
+
+/// Flips "Jump to VS Code window", saves it, and redraws so the panel's clickable rows follow.
+fn toggle_vscode_jump(items: &TrayItems, core: &Core, publish: &Publish, menu: &JumpMenu) {
+    let on = {
+        let mut core = lock(core);
+        let on = !core.vscode_jump();
+        core.set_vscode_jump(on);
+        on
+    };
+    let _ = items.vscode.set_checked(on);
+    if let Err(e) = crate::jump::save_vscode_option(&menu.path, on) {
+        eprintln!("jump: cannot save the VS Code option: {e}");
     }
     publish();
 }
@@ -345,11 +366,14 @@ pub fn install(
     approve_menu: ApproveMenu,
     hat_menu: HatMenu,
     avatar_menu: AvatarMenu,
+    jump_menu: JumpMenu,
 ) -> tauri::Result<()> {
     let toggle = MenuItem::with_id(app, "toggle", "Hide", true, None::<&str>)?;
     let quiet = CheckMenuItem::with_id(app, "quiet", "Do not disturb", true, false, None::<&str>)?;
     let approve =
         CheckMenuItem::with_id(app, "approve", "Approve in window", true, approve_menu.approvals.enabled, None::<&str>)?;
+    let vscode_on = lock(&core).vscode_jump();
+    let vscode = CheckMenuItem::with_id(app, "vscode", "Jump to VS Code window", true, vscode_on, None::<&str>)?;
     let hooks = CheckMenuItem::with_id(app, "hooks", "Connect to Claude Code", true, hooks_on, None::<&str>)?;
     let voice_submenu = Submenu::new(app, "Voice", true)?;
     let voices = {
@@ -397,8 +421,11 @@ pub fn install(
     let rules = MenuItem::with_id(app, "rules", "Open rules file", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&toggle, &quiet, &approve, &voice_submenu, &avatar_submenu, &holidays_submenu, &hooks, &rules, &sep, &quit_item])?;
-    app.manage(TrayItems { toggle, quiet, approve, hooks, voices, avatars, holidays, hats });
+    let menu = Menu::with_items(
+        app,
+        &[&toggle, &quiet, &approve, &vscode, &voice_submenu, &avatar_submenu, &holidays_submenu, &hooks, &rules, &sep, &quit_item],
+    )?;
+    app.manage(TrayItems { toggle, quiet, approve, vscode, hooks, voices, avatars, holidays, hats });
 
     let mut builder = TrayIconBuilder::new().tooltip("DesktopAssistant").menu(&menu);
     if let Some(icon) = app.default_window_icon() {
@@ -409,6 +436,7 @@ pub fn install(
             "toggle" => toggle_visible(app),
             "quiet" => toggle_quiet(&app.state::<TrayItems>(), &core, &publish, &queue),
             "approve" => toggle_approve(&app.state::<TrayItems>(), &core, &publish, &approve_menu),
+            "vscode" => toggle_vscode_jump(&app.state::<TrayItems>(), &core, &publish, &jump_menu),
             "hooks" => {
                 // One dialog at a time, even if the item is clicked again meanwhile.
                 if HOOKS_BUSY.swap(true, Ordering::SeqCst) {

@@ -118,6 +118,8 @@ pub struct Core {
     holidays_enabled: bool,
     /// An id from avatar::AVATARS.
     avatar: &'static str,
+    /// The tray's "Jump to VS Code window" option: VS Code sessions jump to their own window.
+    vscode_jump: bool,
     /// The local month, once main.rs has read it.
     month: Option<u8>,
 }
@@ -162,6 +164,7 @@ impl Core {
             hats: hats::ALL_ON,
             holidays_enabled: true,
             avatar: crate::avatar::AVATARS[0].0,
+            vscode_jump: false,
             month: None,
         }
     }
@@ -291,6 +294,14 @@ impl Core {
         self.avatar
     }
 
+    pub fn set_vscode_jump(&mut self, on: bool) {
+        self.vscode_jump = on;
+    }
+
+    pub fn vscode_jump(&self) -> bool {
+        self.vscode_jump
+    }
+
     /// Each month's hat tick, kept while Holidays is off.
     pub fn set_hats(&mut self, on: Months) {
         self.hats = on;
@@ -361,7 +372,7 @@ impl Core {
             .list()
             .into_iter()
             .find(|v| v.id == id)
-            .map(|v| jump::target_for(&v.source, v.terminal_pid))
+            .map(|v| jump::target_for(&v.source, v.terminal_pid, &v.project, self.vscode_jump))
     }
 
     fn request_view(&self, sessions: &[SessionView], now_ms: u64) -> Option<RequestView> {
@@ -400,7 +411,8 @@ impl Core {
             .list()
             .into_iter()
             .map(|v| SessionView {
-                jumpable: jump::target_for(&v.source, v.terminal_pid) != jump::Target::None,
+                jumpable: jump::target_for(&v.source, v.terminal_pid, &v.project, self.vscode_jump)
+                    != jump::Target::None,
                 id: v.id,
                 project: v.project,
                 source: v.source,
@@ -555,10 +567,22 @@ mod tests {
         cli.source = "cli".into();
         let mut sdk = ev("PreToolUse", "b", Some("Read"));
         sdk.source = "sdk-cli".into();
+        let mut vscode = ev("PreToolUse", "c", Some("Read"));
+        vscode.source = "claude-vscode".into();
         core.handle(cli, 10);
         core.handle(sdk, 10);
-        assert_eq!(core.jump_target("a"), Some(jump::Target::Terminal(7)));
+        core.handle(vscode, 10);
+        let jumpable = |core: &Core, id: &str| core.snapshot(0).sessions.into_iter().any(|v| v.id == id && v.jumpable);
+        // The VS Code option starts off: the extension's session cannot jump.
+        assert!(!core.vscode_jump());
+        assert_eq!(core.jump_target("a"), Some(jump::Target::Terminal { pid: 7, project: None }));
         assert_eq!(core.jump_target("b"), Some(jump::Target::None));
+        assert_eq!(core.jump_target("c"), Some(jump::Target::None));
+        assert!(jumpable(&core, "a") && !jumpable(&core, "b") && !jumpable(&core, "c"));
+        core.set_vscode_jump(true);
+        assert_eq!(core.jump_target("a"), Some(jump::Target::Terminal { pid: 7, project: Some("proj".into()) }));
+        assert_eq!(core.jump_target("c"), Some(jump::Target::VsCode { project: "proj".into() }));
+        assert!(jumpable(&core, "c") && !jumpable(&core, "b"));
         assert_eq!(core.jump_target("gone"), None);
         let s = core.snapshot(0);
         let jumpable = |id: &str| s.sessions.iter().find(|v| v.id == id).unwrap().jumpable;
