@@ -287,7 +287,6 @@ fn main() {
             let rules_path = paths::data_dir().join("rules.toml");
             let (rules, rules_warning) = rules::load_or_create(&rules_path);
             let core: SharedCore = Arc::new(Mutex::new(app::Core::new(rules, rules_warning)));
-            lock(&core).set_sandbox_warning(sandbox::current_warning());
             // Read-only: a missing or unreadable settings file counts as not connected.
             let status = tray::claude_settings_path()
                 .zip(std::env::current_exe().ok().map(|e| tray::hook_path_beside(&e)))
@@ -379,6 +378,8 @@ fn main() {
                 }),
             };
             let started = listener::start(routes);
+            // After endpoint.json is written, so a redirected copy of it can be spotted.
+            lock(&core).set_sandbox_warning(sandbox::current_warning(started.as_ref().ok().map(|ep| ep.port)));
             match started {
                 Ok(ep) => eprintln!("listening on 127.0.0.1:{}", ep.port),
                 Err(e) => {
