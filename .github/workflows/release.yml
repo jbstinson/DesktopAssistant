@@ -30,6 +30,16 @@ jobs:
             exit 1
           }
 
+      - name: Signing key must be set
+        shell: pwsh
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if (-not $env:KEY) {
+            Write-Error "The TAURI_SIGNING_PRIVATE_KEY repository secret is missing, so the update could not be signed. See 'Making a release' in the README."
+            exit 1
+          }
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -47,13 +57,25 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace --locked
 
-      - name: Build the installer
+      - name: Build and sign the installer
         id: build
         shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           $setup = ./scripts/build-installer.ps1 | Select-Object -Last 1
           if (-not (Test-Path $setup)) { Write-Error "No installer at '$setup'"; exit 1 }
+          if (-not (Test-Path "$setup.sig")) { Write-Error "No update signature at '$setup.sig'"; exit 1 }
           "setup=$setup" >> $env:GITHUB_OUTPUT
+
+      - name: Write latest.json for in-app updates
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $setup = '${{ steps.build.outputs.setup }}'
+          $name = Split-Path -Leaf $setup
+          node scripts/latest-json.mjs $tag "$setup.sig" "https://github.com/${{ github.repository }}/releases/download/$tag/$name" latest.json
 
       - name: Draft the GitHub Release
         shell: pwsh
@@ -69,8 +91,11 @@ jobs:
           2. The installer is not code-signed, so Windows SmartScreen may say "Windows protected your PC". Click **More info**, then **Run anyway**.
           3. Right-click the character's tray icon and tick **Connect to Claude Code**.
 
+          Already installed? Use **Check for updates** in the tray instead. Updates are signed, and the app only installs ones signed with this project's key.
+
           ## Uninstall
 
           Use Windows **Settings > Apps > Installed apps > DesktopAssistant > Uninstall**. It disconnects from Claude Code first, so no hook is left pointing at a removed program. Your choices stay in ``%APPDATA%\DesktopAssistant``; delete that folder too if you want them gone.
           "@ | Set-Content release-notes.md
-          gh release create $tag '${{ steps.build.outputs.setup }}' --draft --title "DesktopAssistant $($tag.TrimStart('v'))" --notes-file release-notes.md
+          $setup = '${{ steps.build.outputs.setup }}'
+          gh release create $tag $setup "$setup.sig" latest.json --draft --title "DesktopAssistant $($tag.TrimStart('v'))" --notes-file release-notes.md

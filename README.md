@@ -2,7 +2,7 @@
 
 A small always-on-top character for Windows 11 that watches your Claude Code sessions and tells you when one needs you.
 
-It never types anything in a session. A permission request is answered only by a click on a panel button (see Approvals); otherwise it only watches. It uses Claude Code hooks, so it sees sessions from the Claude desktop app, the terminal and `claude -p`. Nothing leaves your machine.
+It never types anything in a session. A permission request is answered only by a click on a panel button (see Approvals); otherwise it only watches. It uses Claude Code hooks, so it sees sessions from the Claude desktop app, the terminal and `claude -p`. Nothing about your sessions leaves your machine. The only network request it ever makes is the optional check for updates to GitHub (see Tray menu), and only when you ask for it or tick **Check automatically**.
 
 ## What it does
 
@@ -18,6 +18,8 @@ It never types anything in a session. A permission request is answered only by a
 1. Download `DesktopAssistant_<version>_x64-setup.exe` from the repo's [Releases](https://github.com/jbstinson/DesktopAssistant/releases) page and run it. It installs for your Windows account only (under `%LOCALAPPDATA%\Programs\DesktopAssistant`), with no admin prompt. Installing a newer version over an older one upgrades it in place.
 2. The installer is not code-signed, so Windows SmartScreen may say "Windows protected your PC". Click **More info**, then **Run anyway**.
 3. Follow [First run](#first-run) below.
+
+To update, use **Check for updates** in the tray (see Tray menu). Installing a newer setup by hand also works and keeps you connected.
 
 To uninstall, use Windows **Settings > Apps > Installed apps > DesktopAssistant > Uninstall**. It closes the character, then disconnects from Claude Code (the same as unticking **Connect to Claude Code**, so only our hook entries go), then removes the program. Your choices and rules stay in `%APPDATA%\DesktopAssistant`; delete that folder too if you want them gone.
 
@@ -49,7 +51,14 @@ sis\`. `desktop-assistant.exe --disconnect` removes our hook entries and exits; 
 
 1. Set the new version in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `hook/Cargo.toml` and `package.json`, run `cargo build` and `npm install` so the lock files follow, and merge that to `main`.
 2. Tag the merged commit and push the tag, for example `git tag v0.2.0` then `git push origin v0.2.0`.
-3. `.github/workflows/release.yml` checks that the tag matches the version, runs the tests, builds the installer and creates a **draft** Release with the setup attached. Review the draft on GitHub and click **Publish**.
+3. `.github/workflows/release.yml` checks that the tag matches the version, runs the tests, builds and signs the installer and creates a **draft** Release with the setup, its `.sig` and `latest.json` attached. Review the draft on GitHub and click **Publish**. Installed copies see the update only once it's published.
+
+One-time setup of the update signing key, before the first release:
+
+1. Run `npx tauri signer generate -w %USERPROFILE%\.tauri\desktopassistant.key` and choose a password.
+2. Put the public key (the contents of `desktopassistant.key.pub`) in `plugins.updater.pubkey` in `src-tauri/tauri.conf.json` and merge it.
+3. In the GitHub repo's **Settings > Secrets and variables > Actions**, add `TAURI_SIGNING_PRIVATE_KEY` (the contents of `desktopassistant.key`) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The release fails without them.
+4. Back up the private key and its password somewhere safe. If they're lost, installed copies can't verify any later update, and everyone would have to reinstall by hand with a new key.
 
 ## First run
 
@@ -69,6 +78,8 @@ Running sessions pick up new hooks only when they start, so restart any session 
 - **Avatar**: picks the character: Robot (the default), Dog, Cat, Paperclip, Skeleton or Skeleton 3D. The change shows at once and is remembered. Skeleton 3D uses a little more GPU (see 3D avatars).
 - **Holidays**: **Enabled** turns every holiday hat on or off at once. **Months** has one tick per month; a ticked month's hat appears on the character for that whole month (see Hats). Your choices are remembered.
 - **Connect to Claude Code**: ticked when the hooks are installed. Click again to remove only our entries.
+- **Check for updates**: asks GitHub whether a newer published version exists. If so, it asks before installing; on yes it downloads the update, checks its signature, closes the character, upgrades in place and starts again. You stay connected to Claude Code.
+- **Check automatically**: off by default. When ticked, the app checks at most once a day (at startup and while running) and still asks before installing. The choice and the last check time are kept in `updates.json`.
 - **Open rules file**: opens `rules.toml` in Notepad.
 - **Quit**.
 
@@ -78,7 +89,7 @@ Running sessions pick up new hooks only when they start, so restart any session 
 
 ## Where files live
 
-Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time), `avatar.txt` (the chosen avatar), `hats.json` (the Holidays switch and months whose hat is off), `vscode-jump.txt` (the Jump to VS Code window option) and `endpoint.json` (the local port and token that `da-hook` uses).
+Everything is in `%APPDATA%\DesktopAssistant\`: `rules.toml`, `state.json` (robot position), `approvals.json` (the Approve in window switch and hold time), `avatar.txt` (the chosen avatar), `hats.json` (the Holidays switch and months whose hat is off), `vscode-jump.txt` (the Jump to VS Code window option), `updates.json` (the Check automatically option and the last update check) and `endpoint.json` (the local port and token that `da-hook` uses).
 
 ## 3D avatars
 
